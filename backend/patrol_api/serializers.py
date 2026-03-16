@@ -6,8 +6,8 @@ Branch Admin can only create/assign DRIVER accounts for their branch.
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 
-from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport, PingRequest, PingStatus
-from .models import Role
+from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport, PingRequest, PingStatus, VideoCall
+from .models import Role, CallStatus
 
 
 class BranchSerializer(serializers.ModelSerializer):
@@ -205,3 +205,43 @@ class PingResponseSerializer(serializers.Serializer):
             return value
         except PingRequest.DoesNotExist:
             raise serializers.ValidationError('Ping request not found or already responded.')
+
+
+class VideoCallSerializer(serializers.ModelSerializer):
+    """Video call list/detail serializer"""
+    initiator_name = serializers.CharField(source='initiator.username', read_only=True)
+    recipient_name = serializers.CharField(source='recipient.username', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    session_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = VideoCall
+        fields = [
+            'id', 'initiator', 'initiator_name', 'recipient', 'recipient_name',
+            'session', 'session_info', 'status', 'status_display',
+            'started_at', 'ended_at', 'duration_seconds'
+        ]
+        read_only_fields = ['started_at', 'ended_at', 'duration_seconds']
+    
+    def get_session_info(self, obj):
+        if obj.session:
+            return {
+                'id': obj.session.id,
+                'vehicle_plate': obj.session.vehicle.plate_number,
+                'branch_name': obj.session.branch.name
+            }
+        return None
+
+
+class VideoCallInitiateSerializer(serializers.Serializer):
+    """Serializer for initiating a video call"""
+    recipient_id = serializers.IntegerField()
+    session_id = serializers.IntegerField(required=False, allow_null=True)
+    
+    def validate_recipient_id(self, value):
+        """Validate recipient exists and is a driver"""
+        try:
+            recipient = User.objects.get(id=value, role='DRIVER')
+            return value
+        except User.DoesNotExist:
+            raise serializers.ValidationError('Recipient not found or is not a driver.')

@@ -329,6 +329,17 @@
   font-size: 14px;
 }
 
+/* Video Call Button in Popup */
+.video-call-action {
+  margin-top: 0.5rem;
+}
+
+.video-call-action hr {
+  margin: 0.5rem 0;
+  border: none;
+  border-top: 1px solid #ddd;
+}
+
 /* Animation for marker pulse effect */
 @keyframes marker-pulse {
   0% {

@@ -214,3 +214,61 @@ class PushToken(models.Model):
     
     def __str__(self):
         return f"Push token for {self.user.username}"
+
+
+class CallStatus(models.TextChoices):
+    RINGING = 'RINGING', 'Ringing'
+    ACTIVE = 'ACTIVE', 'Active'
+    ENDED = 'ENDED', 'Ended'
+    REJECTED = 'REJECTED', 'Rejected'
+    MISSED = 'MISSED', 'Missed'
+
+
+class VideoCall(models.Model):
+    """Video call session between users (admin to driver)"""
+    initiator = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='initiated_calls',
+        help_text="User who started the call (typically admin)"
+    )
+    recipient = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='received_calls',
+        help_text="User who received the call (typically driver)"
+    )
+    session = models.ForeignKey(
+        DriverSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='video_calls',
+        help_text="Optional associated patrol session"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=CallStatus.choices,
+        default=CallStatus.RINGING
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [
+            models.Index(fields=['initiator', 'status']),     # For active calls by initiator
+            models.Index(fields=['recipient', 'status']),      # For active calls by recipient
+            models.Index(fields=['status', 'started_at']),     # For call history
+            models.Index(fields=['session']),                   # For session-based calls
+        ]
+    
+    def __str__(self):
+        return f"Call {self.id}: {self.initiator.username} → {self.recipient.username} ({self.status})"
+    
+    def save(self, *args, **kwargs):
+        # Calculate duration when call ends
+        if self.ended_at and self.started_at and not self.duration_seconds:
+            self.duration_seconds = int((self.ended_at - self.started_at).total_seconds())
+        super().save(*args, **kwargs)

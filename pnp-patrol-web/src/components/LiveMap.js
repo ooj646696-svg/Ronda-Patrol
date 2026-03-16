@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-
 import L from 'leaflet';
 import * as ronda from '../api/ronda';
 import { useAuth } from '../contexts/AuthContext';
+import VideoCallButton from './VideoCallButton';
 import 'leaflet/dist/leaflet.css';
 import './LiveMap.css';
 
@@ -301,6 +302,19 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging }) {
                             ⏳ Waiting for response...
                           </button>
                         )}
+                      </div>
+                    )}
+                    
+                    {/* Video Call Button for Admins */}
+                    {isAdmin && (
+                      <div className="video-call-action">
+                        <hr />
+                        <VideoCallButton
+                          driverId={loc.driver_id}
+                          driverName={loc.driver}
+                          sessionId={loc.session_id}
+                          disabled={pingStatus === 'RESPONDED' || pingStatus === 'DELIVERED'}
+                        />
                       </div>
                     )}
                   </div>

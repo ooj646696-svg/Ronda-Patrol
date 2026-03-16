@@ -7,13 +7,14 @@ R.O.N.D.A. — API ViewSets.
 
 from django.utils import timezone
 from datetime import timedelta
+from django.db import models
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated as DRFIsAuthenticated
 
-from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport, PingRequest, PingStatus
+from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport, PingRequest, PingStatus, VideoCall
 from .notifications import send_ping_notification
 from .serializers import (
     BranchSerializer,
@@ -27,6 +28,8 @@ from .serializers import (
     PingRequestSerializer,
     PingSendSerializer,
     PingResponseSerializer,
+    VideoCallSerializer,
+    VideoCallInitiateSerializer,
 )
 from .permissions import (
     IsSuperAdmin,
@@ -548,7 +551,7 @@ class PingRespondView(APIView):
                 {'message': 'Response recorded successfully.'},
                 status=status.HTTP_200_OK
             )
-
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -572,3 +575,135 @@ class PingActiveView(APIView):
 
         serializer = PingRequestSerializer(pings, many=True)
         return Response(serializer.data)
+
+
+# ---------- Video Call ----------
+class VideoCallViewSet(viewsets.ModelViewSet):
+    """
+    Video call management for admin-to-driver communication.
+    - Super Admin/Branch Admin: can initiate calls to drivers in their scope
+    - All users: can view their own call history
+    """
+    serializer_class = VideoCallSerializer
+    permission_classes = [DRFIsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'SUPER_ADMIN':
+            return VideoCall.objects.all().select_related('initiator', 'recipient', 'session')
+        elif user.role == 'BRANCH_ADMIN':
+            # Branch admins can see calls involving their branch drivers
+            return VideoCall.objects.filter(
+                models.Q(recipient__branch=user.branch) | models.Q(initiator=user)
+            ).select_related('initiator', 'recipient', 'session')
+        else:
+            # Drivers can only see their own calls
+            return VideoCall.objects.filter(
+                models.Q(initiator=user) | models.Q(recipient=user)
+            ).select_related('initiator', 'recipient', 'session')
+    
+    @action(detail=False, methods=['post'])
+    def initiate(self, request):
+        """Initiate a video call to a driver"""
+        if request.user.role not in ['SUPER_ADMIN', 'BRANCH_ADMIN']:
+            return Response(
+                {'detail': 'Only admins can initiate video calls.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = VideoCallInitiateSerializer(data=request.data)
+        if serializer.is_valid():
+            recipient_id = serializer.validated_data['recipient_id']
+            session_id = serializer.validated_data.get('session_id')
+            
+            # Check if recipient is in scope for branch admin
+            if request.user.role == 'BRANCH_ADMIN':
+                recipient = User.objects.get(id=recipient_id)
+                if recipient.branch_id != request.user.branch_id:
+                    return Response(
+                        {'detail': 'Cannot call driver outside your branch.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            
+            # Create call record
+            call = VideoCall.objects.create(
+                initiator=request.user,
+                recipient_id=recipient_id,
+                session_id=session_id,
+                status='RINGING'
+            )
+            
+            return Response(
+                VideoCallSerializer(call).data,
+                status=status.HTTP_201_CREATED
+            )
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def accept(self, request, pk=None):
+        """Accept a video call"""
+        call = self.get_object()
+        
+        if call.recipient != request.user:
+            return Response(
+                {'detail': 'Only call recipient can accept the call.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if call.status != 'RINGING':
+            return Response(
+                {'detail': 'Call cannot be accepted in current status.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        call.status = 'ACTIVE'
+        call.save()
+        
+        return Response({'status': 'Call accepted'})
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject a video call"""
+        call = self.get_object()
+        
+        if call.recipient != request.user:
+            return Response(
+                {'detail': 'Only call recipient can reject the call.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if call.status != 'RINGING':
+            return Response(
+                {'detail': 'Call cannot be rejected in current status.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        call.status = 'REJECTED'
+        call.ended_at = timezone.now()
+        call.save()
+        
+        return Response({'status': 'Call rejected'})
+    
+    @action(detail=True, methods=['post'])
+    def end(self, request, pk=None):
+        """End a video call"""
+        call = self.get_object()
+        
+        if call.initiator != request.user and call.recipient != request.user:
+            return Response(
+                {'detail': 'Only call participants can end the call.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if call.status not in ['RINGING', 'ACTIVE']:
+            return Response(
+                {'detail': 'Call cannot be ended in current status.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        call.status = 'ENDED'
+        call.ended_at = timezone.now()
+        call.save()
+        
+        return Response({'status': 'Call ended'})
