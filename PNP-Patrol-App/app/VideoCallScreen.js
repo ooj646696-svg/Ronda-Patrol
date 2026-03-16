@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { RTCPeerConnection, RTCIceCandidate, RTCSessionDescription, mediaDevices } from 'react-native-webrtc';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { getAccessToken, getApiBaseUrl, getWsBaseUrl } from '../lib/endpoints';
 
 const VideoCallScreen = ({ route, navigation }) => {
   const { call } = route.params;
@@ -47,8 +48,8 @@ const VideoCallScreen = ({ route, navigation }) => {
       setLocalStream(stream);
 
       // Initialize WebSocket connection
-      const token = await AsyncStorage.getItem('access_token');
-      const wsUrl = `ws://192.168.1.25:8000/ws/call/?token=${token}`;
+      const token = await getAccessToken();
+      const wsUrl = `${getWsBaseUrl()}/ws/call/?token=${token}`;
       const ws = new WebSocket(wsUrl);
       setWebsocket(ws);
 
@@ -190,7 +191,7 @@ const VideoCallScreen = ({ route, navigation }) => {
 
   const handleEndCall = async () => {
     try {
-      await axios.post(`http://192.168.1.25:8000/api/video-calls/${call.id}/end/`);
+      await axios.post(`${getApiBaseUrl()}/video-calls/${call.id}/end/`);
       
       if (websocket) {
         websocket.send(JSON.stringify({

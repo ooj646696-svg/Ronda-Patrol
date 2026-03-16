@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAccessToken, getWsBaseUrl } from '../lib/endpoints';
 
 const VideoCallContext = createContext();
 
@@ -30,13 +30,12 @@ export const VideoCallProvider = ({ children }) => {
   const initializeVideoCallManager = async () => {
     try {
       // Get current user info
-      const token = await AsyncStorage.getItem('access_token');
-      const userId = await AsyncStorage.getItem('user_id');
+      const token = await getAccessToken();
       
-      if (!token || !userId) return;
+      if (!token) return;
 
       // Initialize WebSocket connection
-      const wsUrl = `ws://192.168.1.25:8000/ws/call/?token=${token}`;
+      const wsUrl = `${getWsBaseUrl()}/ws/call/?token=${token}`;
       const ws = new WebSocket(wsUrl);
       setWebsocket(ws);
 

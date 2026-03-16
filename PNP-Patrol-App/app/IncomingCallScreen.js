@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { getApiBaseUrl } from '../lib/endpoints';
 
 const IncomingCallScreen = ({ route, navigation }) => {
   const { call } = route.params;
@@ -18,7 +19,7 @@ const IncomingCallScreen = ({ route, navigation }) => {
 
   const handleAccept = async () => {
     try {
-      await axios.post(`http://192.168.1.25:8000/api/video-calls/${call.id}/accept/`);
+      await axios.post(`${getApiBaseUrl()}/video-calls/${call.id}/accept/`);
       
       // Navigate to video call screen
       navigation.replace('VideoCall', { call: { ...call, status: 'ACTIVE' } });
@@ -30,7 +31,7 @@ const IncomingCallScreen = ({ route, navigation }) => {
 
   const handleReject = async () => {
     try {
-      await axios.post(`http://192.168.1.25:8000/api/video-calls/${call.id}/reject/`);
+      await axios.post(`${getApiBaseUrl()}/video-calls/${call.id}/reject/`);
       navigation.goBack();
     } catch (error) {
       console.error('Error rejecting call:', error);
