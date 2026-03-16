@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap, Tooltip } from 'react-leaflet';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import * as ronda from '../api/ronda';
 import { useAuth } from '../contexts/AuthContext';
@@ -215,11 +215,10 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging }) {
   return (
     <>
       {Object.entries(groupedByCoords).map(([coordKey, locs]) => {
-        const [lat, lng] = coordKey.split(',').map(parseFloat);
+        const [centerLat, centerLng] = coordKey.split(',').map(parseFloat);
         
         return locs.map((loc, index) => {
-          const [lat, lng] = coordKey.split(',').map(parseFloat);
-          const position = getCircularOffset(lat, lng, index, locs.length);
+          const position = getCircularOffset(centerLat, centerLng, index, locs.length);
           
           // Determine ping status display
           const pingStatus = loc.recent_ping ? loc.recent_ping.status : null;
