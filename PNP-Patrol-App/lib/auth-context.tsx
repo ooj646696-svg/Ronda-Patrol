@@ -4,10 +4,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setTokens, clearTokens, ronda } from './api';
+import { registerPushToken, clearPushToken, setupNotificationListener } from './notifications';
 
 const USER_KEY = '@ronda_user';
 
-type User = { username: string; role: string; branchId: number | null; branchName?: string } | null;
+type User = { id?: number; username: string; role: string; branchId: number | null; branchName?: string } | null;
 
 const AuthContext = createContext<{
   user: User;
@@ -20,6 +21,7 @@ const AuthContext = createContext<{
 function parseJwtPayload(token: string): User {
   const payload = JSON.parse(atob(token.split('.')[1]));
   return {
+    id: payload.user_id || payload.id,
     username: payload.username || payload.sub,
     role: payload.role || 'DRIVER',
     branchId: payload.branch_id ?? null,
@@ -44,6 +46,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
+  // Setup notification listener when app starts
+  useEffect(() => {
+    const cleanup = setupNotificationListener();
+    return cleanup;
+  }, []);
+
+  // Register push token when user logs in
+  useEffect(() => {
+    if (user?.id) {
+      console.log('🔔 Registering push token for user:', user.id);
+      registerPushToken(user.id);
+    }
+  }, [user]);
+
   const login = useCallback(async (username: string, password: string) => {
     const tokens = await ronda.auth.login(username, password);
     await setTokens(tokens.access, tokens.refresh);
@@ -55,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await clearTokens();
+    await clearPushToken();
     await AsyncStorage.removeItem(USER_KEY);
     setUser(null);
   }, []);

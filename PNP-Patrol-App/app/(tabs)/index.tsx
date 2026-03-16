@@ -9,12 +9,14 @@ import {
   Alert,
   AppState,
   AppStateStatus,
+  Modal,
 } from 'react-native';
 import * as Location from 'expo-location';
 import { useAuth } from '@/lib/auth-context';
 import { ronda } from '@/lib/api';
 import { pushToQueue, flushQueue, getQueue } from '@/lib/gps-queue';
 import { useRouter } from 'expo-router';
+import NotificationsTest from '@/components/NotificationsTest';
 
 const GPS_INTERVAL_MS = 5000; // Base interval (will be adapted)
 const MIN_DISTANCE_METERS = 5; // Minimum movement to trigger update
@@ -44,6 +46,17 @@ type Vehicle = {
   branch_name?: string;
 };
 
+type Ping = {
+  id: number;
+  sender: {
+    id: number;
+    username: string;
+  };
+  sent_at: string;
+  status: 'SENT' | 'DELIVERED' | 'RESPONDED';
+  response?: string;
+};
+
 export default function HomeScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
@@ -55,9 +68,12 @@ export default function HomeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [lastGpsTime, setLastGpsTime] = useState<string | null>(null);
   const [queuedCount, setQueuedCount] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const adaptiveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [activePing, setActivePing] = useState<Ping | null>(null);
+  const [pingModalVisible, setPingModalVisible] = useState(false);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -299,12 +315,47 @@ export default function HomeScreen() {
     return () => stopTracking();
   }, [session?.id, session?.is_active, startContinuousTracking, stopTracking]);
 
+  const checkForPings = useCallback(async () => {
+    if (!user?.id) return;
+    
+    try {
+      console.log('🔍 Checking for pings...');
+      const pings = await ronda.ping.active();
+      console.log('📋 Raw pings from API:', pings);
+      
+      const newPing = pings.find((p: Ping) => p.status !== 'RESPONDED');
+      console.log('🎯 Non-responded ping found:', newPing);
+      
+      // Only show modal if there's a new ping we haven't responded to yet
+      setActivePing((currentPing: Ping | null) => {
+        console.log('🔄 Comparing pings - current:', currentPing?.id, 'new:', newPing?.id);
+        if (newPing && (!currentPing || newPing.id !== currentPing.id)) {
+          // New ping detected - show modal
+          setPingModalVisible(true);
+          console.log('📢 New ping detected - showing modal:', newPing);
+          return newPing;
+        }
+        console.log('✋ No new ping to show');
+        return currentPing;
+      });
+    } catch (error) {
+      console.error('❌ Failed to check for pings:', error);
+    }
+  }, [user?.id]);
+
   useEffect(() => {
-    (async () => {
-      const q = await getQueue();
-      setQueuedCount(q.length);
-    })();
-  }, []);
+    // Start ping polling when component mounts
+    checkForPings(); // Check immediately
+    pingIntervalRef.current = setInterval(checkForPings, 10000); // Check every 10 seconds
+
+    return () => {
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+    };
+  }, [checkForPings]);
+
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
       if (state === 'active') {
@@ -377,6 +428,53 @@ export default function HomeScreen() {
     ]);
   };
 
+  const handlePingResponse = async (response: string) => {
+    if (!activePing) {
+      console.log('⚠️ No active ping to respond to');
+      return;
+    }
+    
+    console.log('📤 Sending ping response:', { pingId: activePing.id, response });
+    
+    try {
+      setActionLoading(true);
+      
+      // Get current location if available
+      const { status } = await Location.getForegroundPermissionsAsync();
+      let latitude, longitude;
+      if (status === 'granted') {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        latitude = loc.coords.latitude;
+        longitude = loc.coords.longitude;
+      }
+      
+      const result = await ronda.ping.respond(activePing.id, response, latitude, longitude);
+      console.log('✅ Ping response sent successfully:', result);
+      
+      setPingModalVisible(false);
+      setActivePing(null);
+      Alert.alert('Response Sent', `You responded: ${response}`);
+    } catch (error: any) {
+      console.error('❌ Failed to respond to ping:', error);
+      console.error('Error response:', error.response?.data);
+      Alert.alert('Error', `Failed to send response: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRespondLater = () => {
+    // Just close modal but keep the ping active
+    setPingModalVisible(false);
+    console.log('⏰ Ping deferred but still active');
+  };
+
+  const handleOpenPendingPing = () => {
+    if (activePing) {
+      setPingModalVisible(true);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -422,6 +520,16 @@ export default function HomeScreen() {
           <Text style={styles.queued}>Queued to sync: {queuedCount} point(s)</Text>
         )}
       </View>
+
+      {/* Pending Ping Banner */}
+      {activePing && !pingModalVisible && (
+        <TouchableOpacity 
+          style={styles.pendingPingBanner}
+          onPress={handleOpenPendingPing}
+        >
+          <Text style={styles.pendingPingText}>📢 Pending ping from {activePing.sender?.username || 'Admin'} - Tap to respond</Text>
+        </TouchableOpacity>
+      )}
 
       {!session?.is_active && vehicles.length > 0 && (
         <View style={styles.vehiclePicker}>
@@ -472,9 +580,145 @@ export default function HomeScreen() {
           </TouchableOpacity>
         )}
       </View>
+      <PingModal
+        visible={pingModalVisible}
+        ping={activePing}
+        onRespond={handlePingResponse}
+        onClose={handleRespondLater}
+      />
+      
+      {/* Notification Test Component */}
+      <NotificationsTest />
     </ScrollView>
   );
 }
+
+// Ping Modal Component
+function PingModal({ visible, ping, onRespond, onClose }: {
+  visible: boolean;
+  ping: Ping | null;
+  onRespond: (response: string) => void;
+  onClose: () => void;
+}) {
+  if (!visible || !ping) return null;
+
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={pingModalStyles.overlay}>
+        <View style={pingModalStyles.container}>
+          <Text style={pingModalStyles.title}>📢 Ping from Admin</Text>
+          <Text style={pingModalStyles.subtitle}>
+            {ping.sender?.username || 'Admin'} sent you a ping at{' '}
+            {new Date(ping.sent_at).toLocaleTimeString()}
+          </Text>
+          <Text style={pingModalStyles.message}>
+            Please respond to confirm your status:
+          </Text>
+
+          <View style={pingModalStyles.buttonContainer}>
+            <TouchableOpacity
+              style={[pingModalStyles.button, pingModalStyles.yesButton]}
+              onPress={() => onRespond('YES')}
+            >
+              <Text style={pingModalStyles.buttonText}>✅ Yes, I'm Fine</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[pingModalStyles.button, pingModalStyles.noButton]}
+              onPress={() => onRespond('NO')}
+            >
+              <Text style={pingModalStyles.buttonText}>❌ Need Assistance</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[pingModalStyles.button, pingModalStyles.emergencyButton]}
+              onPress={() => onRespond('NEED_ASSISTANCE')}
+            >
+              <Text style={pingModalStyles.buttonText}>🚨 Emergency Help</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={pingModalStyles.closeButton} onPress={onClose}>
+            <Text style={pingModalStyles.closeText}>⏰ Respond Later</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const pingModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  container: {
+    backgroundColor: '#1e3a5f',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  message: {
+    fontSize: 16,
+    color: '#fff',
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  buttonContainer: {
+    width: '100%',
+    gap: 12,
+    marginBottom: 16,
+  },
+  button: {
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  yesButton: {
+    backgroundColor: '#2e7d32',
+  },
+  noButton: {
+    backgroundColor: '#c62828',
+  },
+  emergencyButton: {
+    backgroundColor: '#ff6f00',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  closeButton: {
+    paddingVertical: 10,
+  },
+  closeText: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 14,
+  },
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f1c2e' },
@@ -537,4 +781,19 @@ const styles = StyleSheet.create({
   buttonStop: { backgroundColor: '#c62828' },
   buttonDisabled: { opacity: 0.7 },
   buttonText: { color: '#fff', fontSize: 17, fontWeight: '600' },
+
+  pendingPingBanner: {
+    backgroundColor: '#ff9800',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#f57c00',
+  },
+  pendingPingText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
 });

@@ -67,4 +67,15 @@ export const ronda = {
     create: (sessionId: number, latitude: number, longitude: number, timestamp: string) =>
       api.post('/gps-logs/', { session: sessionId, latitude, longitude, timestamp }).then((r) => r.data),
   },
+  ping: {
+    active: () => api.get('/ping/active/').then((r) => r.data),
+    respond: (pingId: number, response: string, latitude?: number, longitude?: number) =>
+      api.post('/ping/respond/', { ping_id: pingId, response, latitude, longitude }).then((r) => r.data),
+  },
+  notifications: {
+    registerToken: (token: string) =>
+      api.post('/notifications/register/', { push_token: token }).then((r) => r.data),
+    unregisterToken: (token: string) =>
+      api.post('/notifications/unregister/', { push_token: token }).then((r) => r.data),
+  },
 };
