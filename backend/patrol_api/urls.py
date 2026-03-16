@@ -23,6 +23,14 @@ from .views import (
     GPSLogViewSet,
     IncidentReportViewSet,
     LiveLocationsView,
+    PingSendView,
+    PingRespondView,
+    PingActiveView,
+)
+from .notifications import (
+    register_push_token,
+    unregister_push_token,
+    NotificationRegistrationView,
 )
 
 router = DefaultRouter()
@@ -41,5 +49,11 @@ urlpatterns = [
     path('auth/token/', RondaTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('sessions/live/', LiveLocationsView.as_view(), name='live_locations'),
+    path('ping/send/', PingSendView.as_view(), name='ping_send'),
+    path('ping/respond/', PingRespondView.as_view(), name='ping_respond'),
+    path('ping/active/', PingActiveView.as_view(), name='ping_active'),
+    path('notifications/register/', register_push_token, name='register_push_token'),
+    path('notifications/unregister/', unregister_push_token, name='unregister_push_token'),
+    path('notifications/', NotificationRegistrationView.as_view(), name='notification_registration'),
     path('', include(router.urls)),
 ]

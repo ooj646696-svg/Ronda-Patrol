@@ -1,7 +1,7 @@
 """
 R.O.N.D.A. — API ViewSets.
 - Driver: JWT login, start/stop session (single active), GPS only when session active.
-- Branch Admin: view sessions and live vehicle locations for their branch.
+- Branch Admin: view sessions and live vehicle locations for their branch, including recent ping info.
 - Super Admin: full access.
 """
 
@@ -11,8 +11,10 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated as DRFIsAuthenticated
 
-from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport
+from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport, PingRequest, PingStatus
+from .notifications import send_ping_notification
 from .serializers import (
     BranchSerializer,
     UserListSerializer,
@@ -22,6 +24,9 @@ from .serializers import (
     DriverSessionStartSerializer,
     GPSLogSerializer,
     IncidentReportSerializer,
+    PingRequestSerializer,
+    PingSendSerializer,
+    PingResponseSerializer,
 )
 from .permissions import (
     IsSuperAdmin,
@@ -51,65 +56,54 @@ class BranchViewSet(viewsets.ModelViewSet):
         return Branch.objects.none()
 
     def perform_create(self, serializer):
-        # Only Super Admin can create branches
         if not self.request.user.is_super_admin:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only Super Admin can create branches.')
         serializer.save()
 
     def perform_update(self, serializer):
-        # Only Super Admin can update branches
         if not self.request.user.is_super_admin:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only Super Admin can update branches.')
         serializer.save()
 
     def destroy(self, request, *args, **kwargs):
-        """Override destroy to handle related data safely"""
         try:
             branch = self.get_object()
-            
-            # Only Super Admin can delete branches
+
             if not request.user.is_super_admin:
                 return Response(
                     {'detail': 'Only Super Admin can delete branches.'},
                     status=status.HTTP_403_FORBIDDEN
                 )
-            
-            # Check if branch has active sessions
-            active_sessions = DriverSession.objects.filter(branch=branch, is_active=True)
-            if active_sessions.exists():
+
+            if DriverSession.objects.filter(branch=branch, is_active=True).exists():
                 return Response(
                     {'detail': 'Cannot delete branch with active patrol sessions. Stop all sessions first.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            # Check if branch has assigned users
+
             users_count = User.objects.filter(branch=branch).count()
             if users_count > 0:
                 return Response(
                     {'detail': f'Cannot delete branch with {users_count} assigned users. Reassign or delete users first.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            # Check if branch has vehicles
+
             vehicles_count = Vehicle.objects.filter(branch=branch).count()
             if vehicles_count > 0:
                 return Response(
                     {'detail': f'Cannot delete branch with {vehicles_count} registered vehicles. Delete vehicles first.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            # Check if branch has historical data
+
             session_count = DriverSession.objects.filter(branch=branch).count()
-            
             if session_count > 0:
                 print(f"Deleting branch {branch.name} ({branch.code}) with {session_count} historical sessions")
-            
-            # Proceed with deletion
+
             self.perform_destroy(branch)
             return Response(status=status.HTTP_204_NO_CONTENT)
-            
+
         except Exception as e:
             print(f"Error deleting branch: {e}")
             return Response(
@@ -118,7 +112,7 @@ class BranchViewSet(viewsets.ModelViewSet):
             )
 
 
-# ---------- User (admin can only give accounts for branch and drivers) ----------
+# ---------- User ----------
 class UserViewSet(viewsets.ModelViewSet):
     """
     User CRUD. Super Admin: any role/branch. Branch Admin: only DRIVER for their branch.
@@ -139,19 +133,15 @@ class UserViewSet(viewsets.ModelViewSet):
         return UserListSerializer
 
     def destroy(self, request, *args, **kwargs):
-        """Override destroy to handle related data safely"""
         try:
             user = self.get_object()
-            
-            # Check if user has active sessions (prevent deletion of active users)
-            active_sessions = DriverSession.objects.filter(driver=user, is_active=True)
-            if active_sessions.exists():
+
+            if DriverSession.objects.filter(driver=user, is_active=True).exists():
                 return Response(
                     {'detail': 'Cannot delete user with active patrol sessions. Stop all sessions first.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            # Check if user is a branch admin with drivers (prevent deletion of responsible admins)
+
             if user.role == 'BRANCH_ADMIN':
                 drivers_in_branch = User.objects.filter(branch=user.branch, role='DRIVER').exclude(id=user.id)
                 if drivers_in_branch.exists():
@@ -159,22 +149,18 @@ class UserViewSet(viewsets.ModelViewSet):
                         {'detail': 'Cannot delete branch admin with assigned drivers. Reassign drivers first.'},
                         status=status.HTTP_400_BAD_REQUEST
                     )
-            
-            # Count historical data for logging
+
             session_count = DriverSession.objects.filter(driver=user).count()
             gps_count = GPSLog.objects.filter(session__driver=user).count()
-            
+
             if session_count > 0:
                 print(f"Deleting user {user.username} with {session_count} historical sessions and {gps_count} GPS records")
                 print(f"WARNING: Sessions will be preserved but driver field will be set to NULL")
-            
-            # Update sessions to set driver to NULL before deleting user
+
             DriverSession.objects.filter(driver=user).update(driver=None)
-            
-            # Proceed with user deletion
             self.perform_destroy(user)
             return Response(status=status.HTTP_204_NO_CONTENT)
-            
+
         except Exception as e:
             print(f"Error deleting user: {e}")
             return Response(
@@ -186,8 +172,8 @@ class UserViewSet(viewsets.ModelViewSet):
 # ---------- Vehicle ----------
 class VehicleViewSet(viewsets.ModelViewSet):
     """
-    Vehicles registered to a branch. Drivers can list vehicles for their branch (to choose when starting a session).
-    Super Admin / Branch Admin can create and manage vehicles (Branch Admin only for their branch).
+    Vehicles registered to a branch. Drivers can list vehicles for their branch.
+    Super Admin / Branch Admin can create and manage vehicles.
     """
     serializer_class = VehicleSerializer
     permission_classes = [IsDriver, BranchScopedPermission]
@@ -210,36 +196,6 @@ class VehicleViewSet(viewsets.ModelViewSet):
         if user.role == 'BRANCH_ADMIN' and user.branch_id:
             serializer.save(branch_id=user.branch_id)
 
-    def destroy(self, request, *args, **kwargs):
-        """Override destroy to handle related data safely"""
-        try:
-            vehicle = self.get_object()
-            
-            # Check if vehicle has active sessions
-            active_sessions = DriverSession.objects.filter(vehicle=vehicle, is_active=True)
-            if active_sessions.exists():
-                return Response(
-                    {'detail': 'Cannot delete vehicle with active patrol sessions. Stop all sessions first.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Check if vehicle has historical data
-            session_count = DriverSession.objects.filter(vehicle=vehicle).count()
-            
-            if session_count > 0:
-                print(f"Deleting vehicle {vehicle.plate_number} with {session_count} historical sessions")
-            
-            # Proceed with deletion
-            self.perform_destroy(vehicle)
-            return Response(status=status.HTTP_204_NO_CONTENT)
-            
-        except Exception as e:
-            print(f"Error deleting vehicle: {e}")
-            return Response(
-                {'detail': f'Failed to delete vehicle: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
     def perform_update(self, serializer):
         if self.request.user.role == 'DRIVER':
             from rest_framework.exceptions import PermissionDenied
@@ -251,6 +207,30 @@ class VehicleViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only Super Admin or Branch Admin can delete vehicles.')
         instance.delete()
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            vehicle = self.get_object()
+
+            if DriverSession.objects.filter(vehicle=vehicle, is_active=True).exists():
+                return Response(
+                    {'detail': 'Cannot delete vehicle with active patrol sessions. Stop all sessions first.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            session_count = DriverSession.objects.filter(vehicle=vehicle).count()
+            if session_count > 0:
+                print(f"Deleting vehicle {vehicle.plate_number} with {session_count} historical sessions")
+
+            self.perform_destroy(vehicle)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        except Exception as e:
+            print(f"Error deleting vehicle: {e}")
+            return Response(
+                {'detail': f'Failed to delete vehicle: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 # ---------- DriverSession ----------
@@ -273,22 +253,17 @@ class DriverSessionViewSet(viewsets.ModelViewSet):
         return DriverSession.objects.none()
 
     def perform_create(self, serializer):
-        # Only used for start; driver and branch set from request.user
         pass
 
     @action(detail=False, methods=['post'], url_path='start')
     def start_session(self, request):
-        """
-        Driver starts a session. Only one active session per driver.
-        Expects optional vehicle_id; if driver's branch has one vehicle, use it.
-        """
+        """Driver starts a session. Only one active session per driver."""
         if request.user.role != 'DRIVER':
             return Response({'detail': 'Only drivers can start a session.'}, status=status.HTTP_403_FORBIDDEN)
         driver = request.user
         if not driver.branch_id:
             return Response({'detail': 'Driver must be assigned to a branch.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Prevent multiple active sessions
         if DriverSession.objects.filter(driver=driver, is_active=True).exists():
             return Response(
                 {'detail': 'You already have an active session. Stop it before starting a new one.'},
@@ -332,10 +307,10 @@ class DriverSessionViewSet(viewsets.ModelViewSet):
         return Response(DriverSessionSerializer(session).data)
 
 
-# ---------- Live locations (last GPS per active session) ----------
+# ---------- Live locations ----------
 class LiveLocationsView(APIView):
     """
-    GET: Branch Admin sees live vehicle locations for their branch (last GPS per active session).
+    GET: Branch Admin sees live vehicle locations for their branch.
     Super Admin sees all branches.
     """
     permission_classes = [IsBranchAdmin]
@@ -350,30 +325,24 @@ class LiveLocationsView(APIView):
             else:
                 sessions = DriverSession.objects.none()
 
-            # Return last 3 minutes of GPS points per session for real-time tracking (reduced from 5 minutes)
             three_minutes_ago = timezone.now() - timedelta(minutes=3)
             results = []
-            
+
             for s in sessions:
                 try:
-                    # Get all GPS points in the last 3 minutes, ordered by timestamp
                     recent_gps = GPSLog.objects.filter(
                         session=s,
                         timestamp__gte=three_minutes_ago
-                    ).order_by('timestamp')  # Ensure chronological order
-                    
-                    # Validate GPS data and filter out invalid points
+                    ).order_by('timestamp')
+
                     valid_gps_points = []
                     for g in recent_gps:
                         try:
                             lat = float(g.latitude)
                             lon = float(g.longitude)
-                            
-                            # Validate coordinates (Philippines bounds)
                             if not (4.0 <= lat <= 21.0 and 112.0 <= lon <= 131.0):
                                 print(f"Invalid GPS coordinates for session {s.id}: {lat}, {lon}")
                                 continue
-                                
                             valid_gps_points.append({
                                 'latitude': lat,
                                 'longitude': lon,
@@ -382,26 +351,41 @@ class LiveLocationsView(APIView):
                         except (ValueError, TypeError) as e:
                             print(f"Invalid GPS data for session {s.id}: {e}")
                             continue
-                    
-                    # Get the latest GPS point for compatibility
+
                     last_gps = recent_gps.last() if recent_gps.exists() else None
-                    
-                    result = {
+
+                    # Get recent ping info for this driver
+                    recent_ping = PingRequest.objects.filter(
+                        driver=s.driver,
+                        sent_at__gte=timezone.now() - timedelta(hours=1)
+                    ).order_by('-sent_at').first()
+
+                    ping_info = None
+                    if recent_ping:
+                        ping_info = {
+                            'id': recent_ping.id,
+                            'status': recent_ping.status,
+                            'response': recent_ping.response,
+                            'sent_at': recent_ping.sent_at.isoformat() if recent_ping.sent_at else None,
+                            'responded_at': recent_ping.responded_at.isoformat() if recent_ping.responded_at else None,
+                        }
+
+                    results.append({
                         'session_id': s.id,
                         'driver': s.driver.username,
+                        'driver_id': s.driver.id,
                         'vehicle': s.vehicle.plate_number,
                         'branch': s.branch.code,
                         'latitude': float(last_gps.latitude) if last_gps else None,
                         'longitude': float(last_gps.longitude) if last_gps else None,
                         'timestamp': last_gps.timestamp.isoformat() if last_gps else None,
-                        'recent_points': valid_gps_points,  # All valid points in chronological order
-                        'total_points': len(valid_gps_points),  # Total count for debugging
-                    }
-                    results.append(result)
-                    
+                        'recent_points': valid_gps_points,
+                        'total_points': len(valid_gps_points),
+                        'recent_ping': ping_info,
+                    })
+
                 except Exception as e:
                     print(f"Error processing session {s.id}: {e}")
-                    # Add session with no GPS data rather than failing completely
                     results.append({
                         'session_id': s.id,
                         'driver': s.driver.username,
@@ -413,9 +397,9 @@ class LiveLocationsView(APIView):
                         'recent_points': [],
                         'total_points': 0,
                     })
-            
+
             return Response(results)
-            
+
         except Exception as e:
             print(f"Critical error in LiveLocationsView: {e}")
             return Response(
@@ -473,3 +457,118 @@ class IncidentReportViewSet(viewsets.ModelViewSet):
         if user.role == 'DRIVER':
             return qs.filter(session__driver_id=user.id)
         return qs.none()
+
+
+# ---------- Ping ----------
+class PingSendView(APIView):
+    """Send ping to driver (Admin only)."""
+    permission_classes = [IsSuperAdmin | IsBranchAdmin]
+
+    def post(self, request):
+        serializer = PingSendSerializer(data=request.data)
+        if serializer.is_valid():
+            driver_id = serializer.validated_data['driver_id']
+
+            # Check if driver is in same branch (for Branch Admin)
+            if request.user.role == 'BRANCH_ADMIN':
+                driver = User.objects.get(pk=driver_id)
+                if driver.branch_id != request.user.branch_id:
+                    return Response(
+                        {'error': 'You can only ping drivers in your branch.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
+            # Check cooldown (no ping in last 2 minutes)
+            recent_ping = PingRequest.objects.filter(
+                driver_id=driver_id,
+                sent_at__gte=timezone.now() - timedelta(minutes=2)
+            ).first()
+
+            if recent_ping:
+                return Response(
+                    {'error': 'Driver was recently pinged. Please wait 2 minutes.'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS
+                )
+
+            ping = PingRequest.objects.create(
+                sender=request.user,
+                driver_id=driver_id
+            )
+
+            # Send push notification to driver
+            try:
+                success, message = send_ping_notification(
+                    driver_id, 
+                    request.user.username
+                )
+                if success:
+                    ping.status = PingStatus.DELIVERED
+                    ping.save()
+            except Exception as e:
+                # Log error but don't fail the ping creation
+                print(f"Failed to send push notification: {e}")
+
+            return Response(
+                PingRequestSerializer(ping).data,
+                status=status.HTTP_201_CREATED
+            )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PingRespondView(APIView):
+    """Respond to ping (Driver only)."""
+    permission_classes = [IsDriver]
+
+    def post(self, request):
+        serializer = PingResponseSerializer(data=request.data)
+        if serializer.is_valid():
+            ping_id = serializer.validated_data['ping_id']
+            response = serializer.validated_data['response']
+            latitude = serializer.validated_data.get('latitude')
+            longitude = serializer.validated_data.get('longitude')
+
+            ping = PingRequest.objects.get(pk=ping_id)
+
+            if ping.driver_id != request.user.id:
+                return Response(
+                    {'error': 'This ping is not for you.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            ping.status = PingStatus.RESPONDED
+            ping.responded_at = timezone.now()
+            ping.response = response
+            if latitude and longitude:
+                ping.response_location_lat = latitude
+                ping.response_location_lon = longitude
+            ping.save()
+
+            return Response(
+                {'message': 'Response recorded successfully.'},
+                status=status.HTTP_200_OK
+            )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PingActiveView(APIView):
+    """Get active pings for current user."""
+    permission_classes = [DRFIsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        if user.role == 'DRIVER':
+            pings = PingRequest.objects.filter(
+                driver=user,
+                status__in=[PingStatus.SENT, PingStatus.DELIVERED]
+            ).order_by('-sent_at')
+        else:
+            pings = PingRequest.objects.filter(
+                sender=user,
+                status__in=[PingStatus.SENT, PingStatus.DELIVERED]
+            ).order_by('-sent_at')
+
+        serializer = PingRequestSerializer(pings, many=True)
+        return Response(serializer.data)

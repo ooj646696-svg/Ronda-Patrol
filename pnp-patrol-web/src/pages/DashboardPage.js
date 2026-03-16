@@ -9,6 +9,38 @@ export function DashboardPage() {
   const [sessionsCount, setSessionsCount] = useState({ active: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [pinging, setPinging] = useState({});
+  const [selectedDriver, setSelectedDriver] = useState(null);
+
+  const handlePing = async (driverId, driverName) => {
+    if (pinging[driverId]) return;
+    
+    console.log('Sending ping to driver:', { driverId, driverName, userRole: user?.role });
+    
+    setPinging(prev => ({ ...prev, [driverId]: true }));
+    try {
+      const response = await ronda.ping.send(driverId);
+      console.log('Ping response:', response);
+      alert(`Ping sent to ${driverName} successfully!`);
+      // Refresh live data to show updated ping status
+      refreshLiveData();
+    } catch (error) {
+      console.error('Ping failed:', error);
+      const errorMessage = error.response?.data?.error || error.message || 'Unknown error';
+      alert(`Failed to ping ${driverName}: ${errorMessage}`);
+    } finally {
+      setPinging(prev => ({ ...prev, [driverId]: false }));
+    }
+  };
+
+  const refreshLiveData = async () => {
+    try {
+      const liveData = await ronda.sessions.live();
+      setLive(liveData);
+    } catch (e) {
+      console.error('Failed to refresh live data:', e);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -29,8 +61,52 @@ export function DashboardPage() {
       }
     }
     fetchData();
-    return () => { cancelled = true; };
+    
+    // Refresh live data every 10 seconds to see ping responses
+    const interval = setInterval(refreshLiveData, 10000);
+    
+    return () => { 
+      cancelled = true; 
+      clearInterval(interval);
+    };
   }, []);
+
+  const getPingStatusDisplay = (ping) => {
+    if (!ping) return null;
+    
+    if (ping.status === 'RESPONDED') {
+      const responseText = {
+        'YES': '✅ Driver is fine',
+        'NO': '❌ Driver needs assistance',
+        'NEED_ASSISTANCE': '🚨 Emergency help needed'
+      }[ping.response] || `Responded: ${ping.response}`;
+      
+      return (
+        <div className="ping-status responded">
+          <span className="ping-badge success">Responded</span>
+          <span className="ping-response">{responseText}</span>
+          {ping.responded_at && (
+            <span className="ping-time">
+              {new Date(ping.responded_at).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+      );
+    }
+    
+    if (ping.status === 'SENT' || ping.status === 'DELIVERED') {
+      return (
+        <div className="ping-status pending">
+          <span className="ping-badge warning">Waiting for response...</span>
+          <span className="ping-time">
+            Sent {new Date(ping.sent_at).toLocaleTimeString()}
+          </span>
+        </div>
+      );
+    }
+    
+    return null;
+  };
 
   if (loading) return <div className="dashboard-loading">Loading…</div>;
   if (error) return <div className="dashboard-error">{error}</div>;
@@ -54,21 +130,86 @@ export function DashboardPage() {
         </div>
       </div>
       <div className="dashboard-section">
-        <h3>Recent live locations</h3>
+        <h3>Live Driver Locations</h3>
+        <p className="section-hint">Click on a driver to view details and send pings</p>
+        
         {live.length === 0 ? (
           <p className="muted">No active patrols right now.</p>
         ) : (
-          <ul className="live-list">
+          <div className="live-drivers-grid">
             {live.map((item) => (
-              <li key={item.session_id}>
-                <span className="badge active">Active</span>
-                {item.driver} — {item.vehicle} ({item.branch})
-                {item.timestamp && (
-                  <span className="live-time">Updated {new Date(item.timestamp).toLocaleString()}</span>
+              <div 
+                key={item.session_id} 
+                className={`driver-card ${selectedDriver?.session_id === item.session_id ? 'selected' : ''}`}
+                onClick={() => setSelectedDriver(selectedDriver?.session_id === item.session_id ? null : item)}
+              >
+                <div className="driver-header">
+                  <span className="badge active">Active</span>
+                  <span className="driver-name">{item.driver}</span>
+                </div>
+                
+                <div className="driver-info">
+                  <div className="info-row">
+                    <span className="info-label">Vehicle:</span>
+                    <span className="info-value">{item.vehicle}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-label">Branch:</span>
+                    <span className="info-value">{item.branch}</span>
+                  </div>
+                  {item.latitude && item.longitude && (
+                    <div className="info-row">
+                      <span className="info-label">Location:</span>
+                      <span className="info-value">
+                        {item.latitude.toFixed(6)}, {item.longitude.toFixed(6)}
+                      </span>
+                    </div>
+                  )}
+                  {item.timestamp && (
+                    <div className="info-row">
+                      <span className="info-label">Last Update:</span>
+                      <span className="info-value">
+                        {new Date(item.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Ping Status Display */}
+                {item.recent_ping && (
+                  <div className="ping-status-container">
+                    <h4>Ping Status</h4>
+                    {getPingStatusDisplay(item.recent_ping)}
+                  </div>
                 )}
-              </li>
+
+                {/* Ping Button - Show if admin and no pending ping */}
+                {(user?.role === 'SUPER_ADMIN' || user?.role === 'BRANCH_ADMIN') && (
+                  <div className="ping-actions">
+                    {(!item.recent_ping || item.recent_ping.status === 'RESPONDED') ? (
+                      <button 
+                        className="ping-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePing(item.driver_id, item.driver);
+                        }}
+                        disabled={pinging[item.driver_id]}
+                      >
+                        {pinging[item.driver_id] ? 'Sending...' : '📢 Send Ping'}
+                      </button>
+                    ) : (
+                      <button 
+                        className="ping-button disabled"
+                        disabled
+                      >
+                        ⏳ Waiting for response...
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </div>

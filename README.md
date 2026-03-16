@@ -353,31 +353,132 @@ Optional: set **API base URL** (replace with your machine's IP if testing on dev
 
 ### CORS and network
 
-- Backend must allow the Expo/React Native origin (e.g. `CORS_ALLOW_ALL_ORIGINS = True` in dev).
-- On a real device, use your computer's IP instead of `localhost` for the API URL.
+- Backend must allow to Expo/React Native origin (e.g. `CORS_ALLOW_ALL_ORIGINS = True` in dev).
+- On a real device, use your computer's IP instead of `localhost` for API URL.
 
-For local device testing with Expo Go:
+### 🌐 **LAN Setup (Local Network Testing)**
 
-1. Start Django bound to all interfaces:
+For testing with physical devices on the same WiFi network:
 
+#### **Method 1: Direct LAN Connection**
+
+1. **Find your IP address:**
    ```bash
+   # Windows
+   ipconfig
+   # Look for "IPv4 Address" (e.g. 192.168.1.25)
+   
+   # macOS/Linux
+   ifconfig | grep "inet "
+   # Look for your local IP (e.g. 192.168.1.25)
+   ```
+
+2. **Configure Django for LAN access:**
+   ```bash
+   # Start Django bound to all interfaces
    python manage.py runserver 0.0.0.0:8000
    ```
 
-2. In `backend/settings.py`, include your LAN IP in `ALLOWED_HOSTS`, for example:
-
+3. **Update ALLOWED_HOSTS in `backend/settings.py`:**
    ```python
-   ALLOWED_HOSTS = ["127.0.0.1", "localhost", "192.168.1.60"]
+   # Add your IP to ALLOWED_HOSTS
+   ALLOWED_HOSTS = ["127.0.0.1", "localhost", "192.168.1.25", "192.168.1.26"]
    ```
 
-3. Start Expo with the same IP:
-
+4. **Configure mobile app:**
    ```bash
-   set EXPO_PUBLIC_API_URL=http://192.168.1.60:8000/api
+   # Create/update .env in PNP-Patrol-App
+   EXPO_PUBLIC_API_URL=http://192.168.1.25:8000/api
+   EXPO_PUBLIC_WS_URL=ws://192.168.1.25:8000/ws/
+   ```
+
+5. **Start Expo:**
+   ```bash
+   cd PNP-Patrol-App
+   npx expo start --clear
+   ```
+npx expo install expo-notifications
+
+6. **Configure Expo Go (if needed):**
+   - Shake device in Expo Go
+   - Tap "Configure Bundler" or "Dev Settings"
+   - Set "Debug server host & port for device" to: `192.168.1.25:8081`
+
+#### **Method 2: Tunnel Mode (Recommended for Easy Setup)**
+
+1. **Start with tunnel:**
+   ```bash
+   cd PNP-Patrol-App
+   npx expo start --tunnel
+   ```
+
+2. **Update mobile app .env:**
+   ```bash
+   # Use the tunnel URL provided by Expo
+   EXPO_PUBLIC_API_URL=https://your-tunnel-url.exp.direct:443/api
+   ```
+
+3. **Benefits:**
+   - Works across different networks
+   - No IP configuration needed
+   - Bypasses firewall issues
+   - Publicly accessible tunnel URL
+
+#### **Method 3: USB Debugging (Android Only)**
+
+1. **Connect device via USB:**
+   ```bash
+   # Check device is connected
+   adb devices
+   ```
+
+2. **Forward ports:**
+   ```bash
+   adb reverse tcp:8081 tcp:8081    # Metro bundler
+   adb reverse tcp:8000 tcp:8000    # Django API (optional)
+   ```
+
+3. **Start normally:**
+   ```bash
    npx expo start
    ```
 
-4. Scan the QR in Expo Go. The driver app will now reach the backend from the device.
+#### **Troubleshooting LAN Issues**
+
+**Metro Connection Issues:**
+```bash
+# Clear Metro cache
+npx expo start --clear
+
+# Reset node modules
+rm -rf node_modules package-lock.json
+npm install
+```
+
+**Firewall Issues:**
+- **Windows:** Add exceptions for ports 8000 and 8081 in Windows Defender
+- **macOS:** Allow connections in System Preferences → Security & Privacy
+- **Antivirus:** Temporarily disable or add exceptions
+
+**Network Issues:**
+- Ensure device and computer are on same WiFi network
+- Check if router blocks device-to-device communication
+- Try different WiFi network if available
+
+**Django Connection Issues:**
+```bash
+# Verify Django is accessible
+curl http://192.168.1.25:8000/api/
+
+# Check ALLOWED_HOSTS includes your IP
+grep ALLOWED_HOSTS backend/settings.py
+```
+
+### **Test Credentials**
+After setup, use these test accounts:
+- **DRIVER (mobile):** `driver1 / password123`
+- **SUPER_ADMIN (web):** `superadmin / SuperAdmin123!`
+- **BRANCH_ADMIN (web):** `branchadmin1 / BranchAdmin123!`
 
 ---
 

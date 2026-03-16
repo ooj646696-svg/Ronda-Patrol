@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import * as ronda from '../api/ronda';
+import { useAuth } from '../contexts/AuthContext';
 import 'leaflet/dist/leaflet.css';
 import './LiveMap.css';
 
@@ -9,6 +10,94 @@ const DEFAULT_CENTER = [14.7269, 121.8656]; // Quezon Province center
 const DEFAULT_ZOOM = 9;
 const REFRESH_MS = 5000; // Base interval (will be adapted)
 const SMART_POLL_INTERVAL = 15000; // 15 seconds when no active drivers
+
+// Color palette for drivers - distinct colors for easy identification
+const DRIVER_COLORS = [
+  { bg: '#e53935', border: '#c62828' }, // Red
+  { bg: '#1e88e5', border: '#1565c0' }, // Blue
+  { bg: '#43a047', border: '#2e7d32' }, // Green
+  { bg: '#fb8c00', border: '#ef6c00' }, // Orange
+  { bg: '#8e24aa', border: '#6a1b9a' }, // Purple
+  { bg: '#00acc1', border: '#00838f' }, // Cyan
+  { bg: '#f4511e', border: '#d84315' }, // Deep Orange
+  { bg: '#3949ab', border: '#283593' }, // Indigo
+  { bg: '#7cb342', border: '#558b2f' }, // Light Green
+  { bg: '#fdd835', border: '#f9a825', text: '#333' }, // Yellow
+];
+
+// Vehicle type detection and icons
+function getVehicleIcon(vehiclePlate) {
+  const plate = vehiclePlate?.toLowerCase() || '';
+  if (plate.includes('ambulance') || plate.includes('rescue')) return '🚑';
+  if (plate.includes('police') || plate.includes('patrol') || plate.includes('pnp')) return '🚓';
+  if (plate.includes('motor') || plate.includes('bike')) return '🏍️';
+  if (plate.includes('truck') || plate.includes('lorry')) return '🚛';
+  if (plate.includes('bus') || plate.includes('van')) return '🚌';
+  return '🚗'; // Default car
+}
+
+// Get driver initials (up to 2 characters)
+function getDriverInitials(driverName) {
+  if (!driverName) return '?';
+  const parts = driverName.split(/[\s_-]+/).filter(p => p.length > 0);
+  if (parts.length === 1) {
+    return parts[0].substring(0, 2).toUpperCase();
+  }
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// Generate consistent color index for a driver
+function getDriverColorIndex(driverName) {
+  if (!driverName) return 0;
+  let hash = 0;
+  for (let i = 0; i < driverName.length; i++) {
+    hash = driverName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash) % DRIVER_COLORS.length;
+}
+
+// Create custom marker icon with driver initials
+function createDriverIcon(driverName, vehiclePlate) {
+  const colorIndex = getDriverColorIndex(driverName);
+  const colors = DRIVER_COLORS[colorIndex];
+  const initials = getDriverInitials(driverName);
+  const vehicleEmoji = getVehicleIcon(vehiclePlate);
+  
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48"><text x="20" y="14" text-anchor="middle" font-size="16">${vehicleEmoji}</text><circle cx="20" cy="32" r="14" fill="${colors.bg}" stroke="${colors.border}" stroke-width="3"/><text x="20" y="37" text-anchor="middle" fill="white" font-size="11" font-weight="bold" font-family="Arial, sans-serif">${initials}</text></svg>`;
+  
+  const svgUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+  
+  return L.icon({
+    iconUrl: svgUrl,
+    iconSize: [40, 48],
+    iconAnchor: [20, 48],
+    popupAnchor: [0, -48],
+    className: 'custom-driver-marker',
+  });
+}
+
+// Calculate circular offset for overlapping markers
+function getCircularOffset(baseLat, baseLng, index, totalMarkers) {
+  if (totalMarkers <= 1) {
+    return [baseLat, baseLng];
+  }
+
+  // Start with some minimum distance
+  const minDistance = 0.0002; // ~22 meters at equator
+  const distance = minDistance + (index * 0.0001); // Increase distance for each marker
+  
+  // Calculate angle based on index (distribute evenly around circle)
+  const angle = (index * 360) / totalMarkers;
+  const angleRad = (angle * Math.PI) / 180;
+
+  // Convert to lat/lng offset (approximate, works for small distances)
+  // 1 degree latitude = 111.32 km
+  // 1 degree longitude varies with latitude: 111.32 km * cos(latitude)
+  const latOffset = distance * Math.cos(angleRad);
+  const lngOffset = distance * Math.sin(angleRad) / Math.cos(baseLat * Math.PI / 180);
+
+  return [baseLat + latOffset, baseLng + lngOffset];
+}
 
 // Calculate total distance traveled in GPS trail (in km)
 function calculateTrailDistance(points) {
@@ -104,7 +193,7 @@ function PersistentTrail({ sessionId, recentPoints }) {
   );
 }
 
-function LiveMarkers({ locations, branchFilter }) {
+function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging }) {
   const filtered = branchFilter
     ? locations.filter((l) => l.branch === branchFilter)
     : locations;
@@ -121,14 +210,20 @@ function LiveMarkers({ locations, branchFilter }) {
     groupedByCoords[key].push(loc);
   });
 
+  const isAdmin = userRole === 'SUPER_ADMIN' || userRole === 'BRANCH_ADMIN';
+
   return (
     <>
       {Object.entries(groupedByCoords).map(([coordKey, locs]) => {
         const [lat, lng] = coordKey.split(',').map(parseFloat);
         
         return locs.map((loc, index) => {
-          const offset = index * 0.0001;
-          const position = [lat + offset, lng + offset];
+          const [lat, lng] = coordKey.split(',').map(parseFloat);
+          const position = getCircularOffset(lat, lng, index, locs.length);
+          
+          // Determine ping status display
+          const pingStatus = loc.recent_ping ? loc.recent_ping.status : null;
+          const pingResponse = loc.recent_ping ? loc.recent_ping.response : null;
           
           return (
             <React.Fragment key={`${loc.session_id}-${index}`}>
@@ -139,24 +234,77 @@ function LiveMarkers({ locations, branchFilter }) {
               />
               
               {/* Current position marker */}
-              <Marker position={position}>
+              <Marker 
+                position={position}
+                icon={createDriverIcon(loc.driver, loc.vehicle)}
+              >
                 <Popup>
-                  <strong>{loc.driver}</strong><br />
-                  {loc.vehicle} — {loc.branch}<br />
-                  {loc.timestamp ? new Date(loc.timestamp).toLocaleString() : '—'}<br />
-                  <strong>Coordinates:</strong><br />
-                  Lat: {loc.latitude?.toFixed(6) || 'N/A'}<br />
-                  Lng: {loc.longitude?.toFixed(6) || 'N/A'}<br />
-                  {loc.recent_points && loc.recent_points.length > 0 && (
-                    <>
-                      <br />Trail points: {loc.recent_points.length}
-                      {loc.recent_points.length > 1 && (
+                  <div className="marker-popup">
+                    <strong className="driver-name">{loc.driver}</strong>
+                    <div className="popup-info">
+                      {loc.vehicle} — {loc.branch}<br />
+                      {loc.timestamp ? new Date(loc.timestamp).toLocaleString() : '—'}<br />
+                      <strong>Coordinates:</strong><br />
+                      Lat: {loc.latitude?.toFixed(6) || 'N/A'}<br />
+                      Lng: {loc.longitude?.toFixed(6) || 'N/A'}<br />
+                      {loc.recent_points && loc.recent_points.length > 0 && (
                         <>
-                          <br />Distance: {calculateTrailDistance(loc.recent_points).toFixed(2)} km
+                          <br />Trail points: {loc.recent_points.length}
+                          {loc.recent_points.length > 1 && (
+                            <>
+                              <br />Distance: {calculateTrailDistance(loc.recent_points).toFixed(2)} km
+                            </>
+                          )}
                         </>
                       )}
-                    </>
-                  )}
+                    </div>
+                    
+                    {/* Ping Status */}
+                    {loc.recent_ping && (
+                      <div className="ping-status-section">
+                        <hr />
+                        <strong>Ping Status:</strong><br />
+                        {pingStatus === 'RESPONDED' ? (
+                          <>
+                            <span className="ping-badge success">Responded</span><br />
+                            {pingResponse === 'YES' && '✅ Driver is fine'}
+                            {pingResponse === 'NO' && '❌ Driver needs assistance'}
+                            {pingResponse === 'NEED_ASSISTANCE' && '🚨 Emergency help needed'}
+                            {loc.recent_ping.responded_at && (
+                              <><br /><small>at {new Date(loc.recent_ping.responded_at).toLocaleTimeString()}</small></>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <span className="ping-badge pending">Waiting for response...</span><br />
+                            <small>Sent {loc.recent_ping.sent_at ? new Date(loc.recent_ping.sent_at).toLocaleTimeString() : '—'}</small>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Ping Button for Admins */}
+                    {isAdmin && (
+                      <div className="ping-action">
+                        <hr />
+                        {(!loc.recent_ping || pingStatus === 'RESPONDED') ? (
+                          <button 
+                            className="ping-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onPing && onPing(loc.driver_id, loc.driver);
+                            }}
+                          >
+                            📢 Send Ping
+                          </button>
+                        ) : (
+                          <button className="ping-btn disabled" disabled>
+                            ⏳ Waiting for response...
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </Popup>
               </Marker>
             </React.Fragment>
@@ -169,9 +317,11 @@ function LiveMarkers({ locations, branchFilter }) {
         return (
           <Marker key={`no-gps-${loc.session_id}`} position={defaultPosition}>
             <Popup>
-              <strong>{loc.driver}</strong><br />
-              {loc.vehicle} — {loc.branch}<br />
-              <span style={{color: 'red'}}>No GPS data available</span>
+              <div className="marker-popup">
+                <strong className="driver-name">{loc.driver}</strong><br />
+                {loc.vehicle} — {loc.branch}<br />
+                <span style={{color: 'red'}}>No GPS data available</span>
+              </div>
             </Popup>
           </Marker>
         );
@@ -181,13 +331,50 @@ function LiveMarkers({ locations, branchFilter }) {
 }
 
 export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
+  const { user } = useAuth();
   const [locations, setLocations] = useState([]);
   const [allSessions, setAllSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [selectedDriver, setSelectedDriver] = useState('');
+  const [pinging, setPinging] = useState({});
   const fetchRef = useRef(null);
+
+  const handlePing = async (driverId, driverName) => {
+    if (pinging[driverId]) return;
+    
+    console.log('Sending ping from LiveMap:', { driverId, driverName, userRole: user?.role });
+    
+    setPinging(prev => ({ ...prev, [driverId]: true }));
+    try {
+      const response = await ronda.ping.send(driverId);
+      console.log('Ping response:', response);
+      alert(`Ping sent to ${driverName} successfully!`);
+      // Refresh live data to show updated ping status
+      refreshLiveData();
+    } catch (error) {
+      console.error('Ping failed:', error);
+      const errorMessage = error.response?.data?.error || error.message || 'Unknown error';
+      alert(`Failed to ping ${driverName}: ${errorMessage}`);
+    } finally {
+      setPinging(prev => ({ ...prev, [driverId]: false }));
+    }
+  };
+
+  const refreshLiveData = async () => {
+    try {
+      const [liveData, sessionsData] = await Promise.all([
+        ronda.sessions.live(),
+        ronda.sessions.list(),
+      ]);
+      setLocations(liveData);
+      setAllSessions(sessionsData);
+      setLastUpdate(new Date());
+    } catch (e) {
+      console.error('Failed to refresh live data:', e);
+    }
+  };
 
   const fetchLive = useCallback(async () => {
     try {
@@ -281,49 +468,127 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
   if (error) return <div className="live-map-error">{error}</div>;
 
   return (
-    <div className="live-map-wrap">
-      <div className="live-map-toolbar">
-        {branches && branches.length > 0 && onBranchFilterChange && (
-          <select
-            value={branchFilter || ''}
-            onChange={(e) => onBranchFilterChange(e.target.value || null)}
-            className="live-map-select"
-          >
-            <option value="">All branches</option>
-            {branches.map((b) => (
-              <option key={b.id} value={b.code}>{b.name}</option>
-            ))}
-          </select>
-        )}
-        
-        {activeDrivers.length > 0 && (
-          <select
-            value={selectedDriver}
-            onChange={(e) => setSelectedDriver(e.target.value)}
-            className="live-map-select"
-            style={{ marginLeft: '10px' }}
-          >
-            <option value="">Select driver to zoom</option>
-            {activeDrivers.map((driver) => (
-              <option key={driver} value={driver}>{driver}</option>
-            ))}
-          </select>
-        )}
-        
-        <span className="live-map-updated">
-          Real-time updates every 5s. Last: {lastUpdate ? lastUpdate.toLocaleTimeString() : '—'}
-        </span>
+    <div className="live-map-container">
+      <div className="live-map-main">
+        <div className="live-map-toolbar">
+          {branches && branches.length > 0 && onBranchFilterChange && (
+            <select
+              value={branchFilter || ''}
+              onChange={(e) => onBranchFilterChange(e.target.value || null)}
+              className="live-map-select"
+            >
+              <option value="">All branches</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.code}>{b.name}</option>
+              ))}
+            </select>
+          )}
+          
+          {activeDrivers.length > 0 && (
+            <select
+              value={selectedDriver}
+              onChange={(e) => setSelectedDriver(e.target.value)}
+              className="live-map-select"
+              style={{ marginLeft: '10px' }}
+            >
+              <option value="">Select driver to zoom</option>
+              {activeDrivers.map((driver) => (
+                <option key={driver} value={driver}>{driver}</option>
+              ))}
+            </select>
+          )}
+          
+          <span className="live-map-updated">
+            Real-time updates every 5s. Last: {lastUpdate ? lastUpdate.toLocaleTimeString() : '—'}
+          </span>
+        </div>
+        <MapContainer center={center} zoom={DEFAULT_ZOOM} className="live-map" scrollWheelZoom>
+          <FixLeafletIcons />
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <LiveMarkers 
+            locations={locations} 
+            branchFilter={branchFilter} 
+            userRole={user?.role}
+            onPing={handlePing}
+            pinging={pinging}
+          />
+          <MapCenter center={center} />
+          <MapZoomToDriver driverName={selectedDriver} locations={locations} />
+        </MapContainer>
+        <div className="live-map-legend">
+          <span className="badge active">Active</span> Has recent GPS
+          <span className="badge inactive" style={{ marginLeft: '1rem' }}>Inactive</span> No recent position
+        </div>
       </div>
-      <MapContainer center={center} zoom={DEFAULT_ZOOM} className="live-map" scrollWheelZoom>
-        <FixLeafletIcons />
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        <LiveMarkers locations={locations} branchFilter={branchFilter} />
-        <MapCenter center={center} />
-        <MapZoomToDriver driverName={selectedDriver} locations={locations} />
-      </MapContainer>
-      <div className="live-map-legend">
-        <span className="badge active">Active</span> Has recent GPS
-        <span className="badge inactive" style={{ marginLeft: '1rem' }}>Inactive</span> No recent position
+      
+      {/* Right Sidebar */}
+      <div className="live-map-sidebar">
+        <div className="sidebar-header">
+          <h3>Active Drivers</h3>
+          <span className="driver-count">{locations.filter(l => l.latitude != null && l.longitude != null).length}</span>
+        </div>
+        
+        <div className="driver-list">
+          {locations.filter(l => l.latitude != null && l.longitude != null).map((loc) => {
+            const colorIndex = getDriverColorIndex(loc.driver);
+            const colors = DRIVER_COLORS[colorIndex];
+            const pingStatus = loc.recent_ping ? loc.recent_ping.status : null;
+            const pingResponse = loc.recent_ping ? loc.recent_ping.response : null;
+            const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'BRANCH_ADMIN';
+            
+            return (
+              <div key={loc.session_id} className="driver-card">
+                <div className="driver-header">
+                  <div className="driver-color" style={{ backgroundColor: colors.bg, borderColor: colors.border }}>
+                    {getDriverInitials(loc.driver)}
+                  </div>
+                  <div className="driver-info">
+                    <div className="driver-name">{loc.driver}</div>
+                    <div className="driver-details">
+                      {getVehicleIcon(loc.vehicle)} {loc.vehicle} — {loc.branch}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Ping Status */}
+                {loc.recent_ping && (
+                  <div className="driver-ping-status">
+                    {pingStatus === 'RESPONDED' ? (
+                      <span className="ping-badge success">
+                        {pingResponse === 'YES' && '✅ Fine'}
+                        {pingResponse === 'NO' && '❌ Needs help'}
+                        {pingResponse === 'NEED_ASSISTANCE' && '🚨 Emergency'}
+                      </span>
+                    ) : (
+                      <span className="ping-badge pending">
+                        ⏳ Waiting...
+                      </span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Ping Button */}
+                {isAdmin && (
+                  <div className="driver-ping-action">
+                    {(!loc.recent_ping || pingStatus === 'RESPONDED') ? (
+                      <button 
+                        className="ping-btn-small"
+                        onClick={() => handlePing && handlePing(loc.driver_id, loc.driver)}
+                        disabled={pinging[loc.driver_id]}
+                      >
+                        {pinging[loc.driver_id] ? '⏳' : '📢'} Ping
+                      </button>
+                    ) : (
+                      <button className="ping-btn-small disabled" disabled>
+                        ⏳ Waiting...
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

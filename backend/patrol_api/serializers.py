@@ -6,7 +6,7 @@ Branch Admin can only create/assign DRIVER accounts for their branch.
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 
-from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport
+from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport, PingRequest, PingStatus
 from .models import Role
 
 
@@ -161,3 +161,47 @@ class DriverSessionStartSerializer(serializers.Serializer):
         if not Vehicle.objects.filter(pk=value).exists():
             raise serializers.ValidationError('Vehicle not found.')
         return value
+
+
+class PingRequestSerializer(serializers.ModelSerializer):
+    """Ping request for admin to driver communication."""
+    sender_name = serializers.CharField(source='sender.username', read_only=True)
+    driver_name = serializers.CharField(source='driver.username', read_only=True)
+    
+    class Meta:
+        model = PingRequest
+        fields = [
+            'id', 'sender', 'driver', 'sender_name', 'driver_name',
+            'sent_at', 'responded_at', 'status', 'response',
+            'response_location_lat', 'response_location_lon', 'response_time_seconds'
+        ]
+        read_only_fields = ['sent_at', 'responded_at', 'response_time_seconds']
+
+
+class PingSendSerializer(serializers.Serializer):
+    """Serializer for sending ping to driver."""
+    driver_id = serializers.IntegerField()
+    
+    def validate_driver_id(self, value):
+        from .models import User
+        try:
+            driver = User.objects.get(pk=value, role='DRIVER')
+            return value
+        except User.DoesNotExist:
+            raise serializers.ValidationError('Driver not found.')
+
+
+class PingResponseSerializer(serializers.Serializer):
+    """Serializer for driver responding to ping."""
+    ping_id = serializers.IntegerField()
+    response = serializers.ChoiceField(choices=['YES', 'NO', 'NEED_ASSISTANCE'])
+    latitude = serializers.DecimalField(max_digits=11, decimal_places=8, required=False)
+    longitude = serializers.DecimalField(max_digits=11, decimal_places=8, required=False)
+    
+    def validate_ping_id(self, value):
+        from .models import PingRequest
+        try:
+            ping = PingRequest.objects.get(pk=value, status__in=['SENT', 'DELIVERED'])
+            return value
+        except PingRequest.DoesNotExist:
+            raise serializers.ValidationError('Ping request not found or already responded.')

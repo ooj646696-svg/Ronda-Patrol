@@ -40,3 +40,10 @@ export const sessions = {
 export const gpsLogs = {
   list: (params) => api.get('/gps-logs/', { params }).then((r) => r.data),
 };
+
+export const ping = {
+  send: (driverId) => api.post('/ping/send/', { driver_id: driverId }).then((r) => r.data),
+  respond: (pingId, response, latitude, longitude) => 
+    api.post('/ping/respond/', { ping_id: pingId, response, latitude, longitude }).then((r) => r.data),
+  active: () => api.get('/ping/active/').then((r) => r.data),
+};
