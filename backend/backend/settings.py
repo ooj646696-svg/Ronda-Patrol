@@ -195,6 +195,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
+    "https://ronda-patrol-monitoring-web-bt9agbik0.vercel.app",  # ← add this
+
 ]
 
 # Add origins from environment variable (set this on Render)
@@ -210,6 +212,7 @@ if _env_cors:
 # e.g. ronda-patrol-monitoring-web-abc123.vercel.app
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://ronda-patrol-monitoring-web.*\.vercel\.app$",
+    r"^https://.*\.vercel\.app$",
 ]
 
 CORS_ALLOW_HEADERS = [
