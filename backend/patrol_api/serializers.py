@@ -10,6 +10,19 @@ from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport
 from .models import Role, CallStatus
 
 
+class UserLogoutSerializer(serializers.Serializer):
+    """Serializer for user logout action."""
+    user_id = serializers.IntegerField()
+    reason = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    
+    def validate_user_id(self, value):
+        try:
+            user = User.objects.get(id=value)
+            return value
+        except User.DoesNotExist:
+            raise serializers.ValidationError("User not found.")
+
+
 class BranchSerializer(serializers.ModelSerializer):
     """Branch list/detail."""
 

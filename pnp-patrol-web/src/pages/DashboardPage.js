@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import * as ronda from '../api/ronda';
+import UserLogoutControl from '../components/UserLogoutControl';
+import LogoutAllUsers from '../components/LogoutAllUsers';
 import './DashboardPage.css';
+import '../components/UserLogoutControl.css';
 
 export function DashboardPage() {
   const { user } = useAuth();
@@ -11,6 +14,8 @@ export function DashboardPage() {
   const [error, setError] = useState(null);
   const [pinging, setPinging] = useState({});
   const [selectedDriver, setSelectedDriver] = useState(null);
+  const [logoutMessage, setLogoutMessage] = useState(null);
+  const [logoutError, setLogoutError] = useState(null);
 
   const handlePing = async (driverId, driverName) => {
     if (pinging[driverId]) return;
@@ -31,6 +36,22 @@ export function DashboardPage() {
     } finally {
       setPinging(prev => ({ ...prev, [driverId]: false }));
     }
+  };
+
+  const handleLogoutSuccess = (data) => {
+    setLogoutMessage(data.message);
+    setLogoutError(null);
+    // Refresh live data to show updated sessions
+    refreshLiveData();
+    // Clear success message after 5 seconds
+    setTimeout(() => setLogoutMessage(null), 5000);
+  };
+
+  const handleLogoutError = (error) => {
+    setLogoutError(error);
+    setLogoutMessage(null);
+    // Clear error message after 5 seconds
+    setTimeout(() => setLogoutError(null), 5000);
   };
 
   const refreshLiveData = async () => {
@@ -133,6 +154,26 @@ export function DashboardPage() {
         <h3>Live Driver Locations</h3>
         <p className="section-hint">Click on a driver to view details and send pings</p>
         
+        {/* Super Admin Logout All Users */}
+        {user?.role === 'SUPER_ADMIN' && (
+          <LogoutAllUsers
+            onLogoutSuccess={handleLogoutSuccess}
+            onLogoutError={handleLogoutError}
+          />
+        )}
+        
+        {/* Logout Messages */}
+        {logoutMessage && (
+          <div className="logout-success">
+            ✅ {logoutMessage}
+          </div>
+        )}
+        {logoutError && (
+          <div className="logout-error">
+            ❌ {logoutError}
+          </div>
+        )}
+        
         {live.length === 0 ? (
           <p className="muted">No active patrols right now.</p>
         ) : (
@@ -146,6 +187,14 @@ export function DashboardPage() {
                 <div className="driver-header">
                   <span className="badge active">Active</span>
                   <span className="driver-name">{item.driver}</span>
+                  {/* Super Admin Logout Control */}
+                  {user?.role === 'SUPER_ADMIN' && (
+                    <UserLogoutControl
+                      user={{ id: item.driver_id, username: item.driver }}
+                      onLogoutSuccess={handleLogoutSuccess}
+                      onLogoutError={handleLogoutError}
+                    />
+                  )}
                 </div>
                 
                 <div className="driver-info">
