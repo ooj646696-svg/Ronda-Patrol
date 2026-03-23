@@ -3,14 +3,39 @@
  */
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
 const STORAGE_KEYS = { access: '@ronda_access', refresh: '@ronda_refresh' };
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000/api';
+
+// Dynamic API URL detection
+const getApiBaseUrl = () => {
+  // Check if we're in development mode
+  if (Constants.appOwnership === 'expo') {
+    // For Expo Go development, try to detect local network
+    const envUrl = process.env.EXPO_PUBLIC_API_URL;
+    
+    // If env var has localhost, it won't work on mobile - replace with network IP
+    if (envUrl && envUrl.includes('localhost')) {
+      console.warn('⚠️ localhost detected in API URL, may not work on mobile device');
+      return envUrl; // Keep as is for web/simulator
+    }
+    
+    return envUrl || 'http://192.168.1.25:8000/api';
+  }
+  
+  // For development builds or production
+  return process.env.EXPO_PUBLIC_API_URL || 'https://ronda-patrol-monitoring-web-app.onrender.com/api';
+};
+
+const BASE_URL = getApiBaseUrl();
 
 export const api = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
 });
+
+// Log the API URL for debugging
+console.log('🔗 API Base URL:', BASE_URL);
 
 api.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem(STORAGE_KEYS.access);

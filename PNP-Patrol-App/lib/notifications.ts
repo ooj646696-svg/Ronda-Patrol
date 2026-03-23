@@ -5,40 +5,42 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ronda } from './api';
 import Constants from 'expo-constants';
 
-// Conditionally import expo-notifications
+// Import expo-notifications directly
 let Notifications: any;
-if (Constants.appOwnership !== 'expo') {
-  try {
-    Notifications = require('expo-notifications');
-  } catch (error) {
-    console.log('⚠️ expo-notifications not available');
-  }
+try {
+  Notifications = require('expo-notifications');
+} catch (error) {
+  console.log('expo-notifications not available:', error);
 }
 
 const PUSH_TOKEN_KEY = '@ronda_push_token';
 
-// Configure notification handler (only if not in Expo Go)
-if (Notifications) {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
+// Set up notification channel (only if not in Expo Go)
+if (Notifications && Constants.platform?.android) {
+  try {
+    Notifications.setNotificationChannelAsync('default', {
+      name: 'RONDA Alerts',
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: 'default',
+      vibrationPattern: [0, 250, 250, 250],
+    });
+    console.log('Notification channel set up');
+  } catch (error) {
+    console.error('Could not set notification channel:', error);
+  }
 }
 
 export async function requestNotificationPermissions(): Promise<boolean> {
   if (!Notifications) {
-    console.log('⚠️ Notifications not available in Expo Go');
+    console.log('Notifications not available in Expo Go');
     return false;
   }
   
   try {
     const { status } = await Notifications.requestPermissionsAsync();
-    return status === 'granted';
+    const granted = status === 'granted';
+    console.log('Notification permissions:', granted ? 'Granted' : 'Denied');
+    return granted;
   } catch (error) {
     console.error('Error requesting notification permissions:', error);
     return false;
@@ -52,19 +54,24 @@ export async function getPushToken(): Promise<string | null> {
   }
 
   try {
-    const { status } = await Notifications.getPermissionsAsync();
+    // Request permissions first
+    const { status } = await Notifications.requestPermissionsAsync();
     if (status !== 'granted') {
-      const { status: newStatus } = await Notifications.requestPermissionsAsync();
-      if (newStatus !== 'granted') {
-        console.log('Notification permission not granted');
-        return null;
-      }
+      console.log('❌ Notification permission not granted');
+      return null;
     }
 
+    // Get Expo push token
     const token = await Notifications.getExpoPushTokenAsync();
-    return token.data;
+    if (!token || !token.data) {
+      console.log('❌ No Expo push token available');
+      return null;
+    }
+    
+    console.log('Got Expo push token:', token ? token.data.substring(0, 20) + '...' : 'No token');
+    return token ? token.data : null;
   } catch (error) {
-    console.error('Error getting push token:', error);
+    console.error('Error getting Expo push token:', error);
     return null;
   }
 }
@@ -101,23 +108,25 @@ export async function registerPushToken(userId?: number): Promise<void> {
       return;
     }
 
-    console.log('🔑 Got push token:', token.substring(0, 20) + '...');
-
+    console.log('🔑 Got push token:', token ? token.substring(0, 20) + '...' : 'No token');
+    
     // Save locally
-    await savePushToken(token);
+    if (token) {
+      await savePushToken(token);
+    }
 
     // Send to backend if user is logged in
-    if (userId) {
+    if (userId && token) {
       try {
-        console.log('📤 Sending token to backend for user:', userId);
+        console.log('Sending token to backend for user:', userId);
         await ronda.notifications.registerToken(token);
-        console.log('✅ Push token registered with backend');
+        console.log('Push token registered with backend');
       } catch (error) {
-        console.error('❌ Error registering push token with backend:', error);
+        console.error('Error registering push token with backend:', error);
       }
     }
   } catch (error) {
-    console.error('❌ Error in registerPushToken:', error);
+    console.error('Error in registerPushToken:', error);
   }
 }
 
@@ -134,8 +143,12 @@ export function setupNotificationListener(): () => void {
     
     // Handle ping notifications
     if (notification.request.content.data?.type === 'ping') {
-      console.log('📢 Ping notification received:', notification.request.content.data);
-      // You could trigger a modal or update UI here
+      console.log('Ping notification received:', notification.request.content.data);
+      
+      // Emit custom event to trigger modal in main app
+      if (typeof (global as any).emitPingNotification === 'function') {
+        (global as any).emitPingNotification(notification.request.content.data);
+      }
     }
   });
 
@@ -145,7 +158,7 @@ export function setupNotificationListener(): () => void {
     
     // Handle ping notification tap
     if (response.notification.request.content.data?.type === 'ping') {
-      console.log('📢 Ping notification tapped');
+      console.log('Ping notification tapped');
       // Navigate to ping response screen or show modal
     }
   });
@@ -183,16 +196,55 @@ export async function sendTestNotification(): Promise<void> {
   }
 
   try {
+    // Ensure notification channel is set up (Android)
+    if (Constants.platform?.android) {
+      try {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'RONDA Alerts',
+          importance: Notifications.AndroidImportance.HIGH,
+          sound: 'default',
+          vibrationPattern: [0, 250, 250, 250],
+        });
+        console.log('✅ Notification channel set up');
+      } catch (channelError) {
+        console.error('⚠️ Failed to set notification channel:', channelError);
+      }
+    }
+
+    // Schedule notification
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Test Notification',
-        body: 'This is a test notification from RONDA Driver App',
-        data: { type: 'test' },
+        title: '🚔 RONDA Test',
+        body: 'Push notifications are working!',
+        data: { type: 'test', timestamp: new Date().toISOString() },
+        sound: 'default',
       },
-      trigger: null,
+      trigger: null, // Show immediately
+      identifier: 'test-notification',
     });
-    console.log('Test notification sent');
+    
+    console.log('Test notification sent successfully');
   } catch (error) {
     console.error('Error sending test notification:', error);
+    
+    // Try alternative method if schedule fails
+    try {
+      const notifications = await Notifications.getPresentedNotificationsAsync();
+      console.log('📱 Notifications presented:', notifications);
+      
+      // Check if notification was presented
+      const wasPresented = notifications.some(n => n.identifier === 'test-notification');
+      if (!wasPresented) {
+        await Notifications.presentNotificationAsync({
+          title: '🚔 RONDA Test (Fallback)',
+          body: 'Fallback notification method',
+          data: { type: 'test', fallback: true },
+          sound: 'default',
+        });
+        console.log('Fallback test notification sent');
+      }
+    } catch (fallbackError) {
+      console.error('Fallback notification also failed:', fallbackError);
+    }
   }
 }

@@ -17,6 +17,18 @@ import { ronda } from '@/lib/api';
 import { pushToQueue, flushQueue, getQueue } from '@/lib/gps-queue';
 import { useRouter } from 'expo-router';
 import NotificationsTest from '@/components/NotificationsTest';
+import { 
+  initializeBackgroundTracking, 
+  cleanupBackgroundTracking, 
+  startBackgroundSessionTracking 
+} from '@/lib/backgroundTasks';
+import { setupNotificationListener } from '@/lib/notifications';
+
+// Global event handler for push notifications
+(global as any).emitPingNotification = (pingData: any) => {
+  console.log('🌐 Global ping notification received:', pingData);
+  // This will trigger the existing ping check logic
+};
 
 const GPS_INTERVAL_MS = 5000; // Base interval (will be adapted)
 const MIN_DISTANCE_METERS = 5; // Minimum movement to trigger update
@@ -108,6 +120,18 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!session?.is_active) fetchVehicles();
   }, [session?.is_active, fetchVehicles]);
+
+  // Initialize background tracking when user is available
+  useEffect(() => {
+    if (user?.id) {
+      initializeBackgroundTracking();
+      console.log('🔄 Background tracking initialized for user:', user.id);
+    }
+    
+    return () => {
+      cleanupBackgroundTracking();
+    };
+  }, [user?.id]);
 
   const sendOrQueueGps = useCallback(
     async (sessionId: number, lat: number, lon: number, timestamp: string) => {
@@ -347,12 +371,33 @@ export default function HomeScreen() {
     // Start ping polling when component mounts
     checkForPings(); // Check immediately
     pingIntervalRef.current = setInterval(checkForPings, 10000); // Check every 10 seconds
-
+    
+    // Initialize push notification listener
+    const cleanupNotificationListener = setupNotificationListener();
+    
+    // Test push notification setup
+    setTimeout(() => {
+      console.log('🔔 Testing push notification setup...');
+      if (typeof (global as any).emitPingNotification === 'function') {
+        console.log('✅ Push notification handler is ready');
+        // Simulate a test ping notification
+        (global as any).emitPingNotification({
+          id: 999,
+          sender: 'Test System',
+          status: 'SENT',
+          sent_at: new Date().toISOString()
+        });
+      } else {
+        console.log('❌ Push notification handler not ready');
+      }
+    }, 2000); // Test after 2 seconds
+    
     return () => {
       if (pingIntervalRef.current) {
         clearInterval(pingIntervalRef.current);
         pingIntervalRef.current = null;
       }
+      cleanupNotificationListener();
     };
   }, [checkForPings]);
 
@@ -374,7 +419,7 @@ export default function HomeScreen() {
       return;
     }
     if (vehicles.length > 1 && selectedVehicleId == null) {
-      Alert.alert('Select vehicle', 'Choose which vehicle you are using before starting the session.');
+      Alert.alert('Select vehicle', 'Choose which vehicle you are using before starting a session.');
       return;
     }
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -388,6 +433,12 @@ export default function HomeScreen() {
       console.log('🚗 Starting session with vehicle:', vehicleId);
       const newSession = await ronda.sessions.start(vehicleId ?? undefined);
       setSession(newSession);
+      
+      // Start background tracking for this user
+      if (user?.id) {
+        await startBackgroundSessionTracking(user.id);
+      }
+      
       console.log('✅ Session started successfully:', newSession.id);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
