@@ -11,11 +11,13 @@ from django.db import models
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.views import APIView
+from rest_framework.views import APIView, exception_handler
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated as DRFIsAuthenticated
 
 from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport, PingRequest, PingStatus, VideoCall
 from .notifications import send_ping_notification
+from .gps_validation import gps_validator, GPSPoint  # Import GPS validation utilities
 from .serializers import (
     BranchSerializer,
     UserListSerializer,
@@ -39,6 +41,53 @@ from .permissions import (
     BranchScopedPermission,
     UserManagementPermission,
 )
+
+
+def custom_exception_handler(exc, context):
+    """
+    Custom exception handler to log validation errors and auto-fix session issues.
+    """
+    # Import here to avoid circular imports
+    from rest_framework.views import exception_handler
+    from rest_framework.exceptions import ValidationError
+    from .models import DriverSession
+    
+    # Call DRF's default exception handler first
+    response = exception_handler(exc, context)
+    
+    # If this is a validation error, log the details
+    if isinstance(exc, ValidationError) and response is not None:
+        request = context.get('request')
+        
+        print(f"❌ [Validation Error] {exc.detail}")
+        if request:
+            print(f"❌ [Validation Error] Request data: {getattr(request, 'data', 'N/A')}")
+            print(f"❌ [Validation Error] User: {request.user} ({request.user.username})")
+        
+        # Auto-fix invalid session errors
+        if 'session' in exc.detail and any('does not exist' in str(error) for error in exc.detail['session']):
+            print(f"🔧 [Auto-Fix] Invalid session detected, attempting to find active session for user")
+            if request and request.user.role == 'DRIVER':
+                active_session = DriverSession.objects.filter(
+                    driver=request.user, 
+                    is_active=True
+                ).first()
+                if active_session:
+                    print(f"✅ [Auto-Fix] Found active session {active_session.id}, updating request data")
+                    # Update the request data with the correct session
+                    if hasattr(request, 'data') and request.data:
+                        request.data['session'] = active_session.id
+                    
+                    # Return a special response to indicate the request should be retried
+                    response.status_code = 422  # Unprocessable Entity
+                    response.data = {
+                        'detail': 'Invalid session detected. Please retry with the correct session.',
+                        'auto_fix_session': active_session.id
+                    }
+                else:
+                    print(f"❌ [Auto-Fix] No active session found for user {request.user.username}")
+    
+    return response
 
 
 # ---------- Branch ----------
@@ -158,6 +207,7 @@ class UserViewSet(viewsets.ModelViewSet):
             gps_count = GPSLog.objects.filter(session__driver=user).count()
 
             if session_count > 0:
+                print(f"📨 [Ping] Sending ping from {request.user.username} to driver ID {user.id}")
                 print(f"Deleting user {user.username} with {session_count} historical sessions and {gps_count} GPS records")
                 print(f"WARNING: Sessions will be preserved but driver field will be set to NULL")
 
@@ -408,22 +458,55 @@ class LiveLocationsView(APIView):
                         timestamp__gte=three_minutes_ago
                     ).order_by('timestamp')
 
+                    # Filter GPS points through validation - only show valid points
                     valid_gps_points = []
+                    rejected_count = 0
+                    previous_point = None
+                    
                     for g in recent_gps:
                         try:
                             lat = float(g.latitude)
                             lon = float(g.longitude)
+                            
+                            # Skip if explicitly marked as invalid (if using new model fields)
+                            if hasattr(g, 'is_valid') and not g.is_valid:
+                                rejected_count += 1
+                                continue
+                            
+                            # Check geographic bounds
                             if not (4.0 <= lat <= 21.0 and 112.0 <= lon <= 131.0):
                                 print(f"Invalid GPS coordinates for session {s.id}: {lat}, {lon}")
+                                rejected_count += 1
                                 continue
+                            
+                            # Build GPS point for validation (if accuracy available)
+                            point_data = {
+                                'latitude': lat,
+                                'longitude': lon,
+                                'timestamp': g.timestamp,
+                            }
+                            if hasattr(g, 'accuracy') and g.accuracy:
+                                point_data['accuracy'] = float(g.accuracy)
+                            if hasattr(g, 'speed') and g.speed:
+                                point_data['speed'] = float(g.speed)
+                            
                             valid_gps_points.append({
                                 'latitude': lat,
                                 'longitude': lon,
-                                'timestamp': g.timestamp.isoformat()
+                                'timestamp': g.timestamp.isoformat(),
+                                'accuracy': float(g.accuracy) if hasattr(g, 'accuracy') and g.accuracy else None,
                             })
+                            
                         except (ValueError, TypeError) as e:
                             print(f"Invalid GPS data for session {s.id}: {e}")
+                            rejected_count += 1
                             continue
+                    
+                    # Log validation summary
+                    if rejected_count > 0:
+                        print(f"📡 [LiveLocations] Session {s.id}: ✅ {len(valid_gps_points)} valid GPS points | ⚠️ {rejected_count} rejected")
+                    else:
+                        print(f"📡 [LiveLocations] Session {s.id}: ✅ {len(valid_gps_points)} valid GPS points")
 
                     last_gps = recent_gps.last() if recent_gps.exists() else None
 
@@ -458,7 +541,7 @@ class LiveLocationsView(APIView):
                     })
 
                 except Exception as e:
-                    print(f"Error processing session {s.id}: {e}")
+                    print(f"❌ [LiveLocations] Error processing session {s.id}: {e}")
                     results.append({
                         'session_id': s.id,
                         'driver': s.driver.username,
@@ -474,7 +557,7 @@ class LiveLocationsView(APIView):
             return Response(results)
 
         except Exception as e:
-            print(f"Critical error in LiveLocationsView: {e}")
+            print(f"🔥 [LiveLocations] Critical error: {e}")
             return Response(
                 {'error': 'Failed to load live locations', 'detail': str(e)},
                 status=500
@@ -503,15 +586,251 @@ class GPSLogViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         # Ensure driver can only create GPS logs for their own active session
-        if self.request.user.role == 'DRIVER':
-            session = serializer.validated_data.get('session')
-            if session.driver_id != self.request.user.id:
+        user = self.request.user
+        session = serializer.validated_data.get('session')
+        
+        # Detailed logging for debugging
+        print(f" [GPS] Creating GPS log | User: {user.id} ({user.username}) | Session: {session.id if session else 'None'}")
+        
+        if user.role == 'DRIVER':
+            if not session:
+                print(f" [GPS] Error: No session provided in validated data")
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError('Session is required.')
+            
+            print(f" [GPS] Session details | ID: {session.id} | Driver: {session.driver_id} | Active: {session.is_active}")
+            print(f" [GPS] User details | ID: {user.id} | Username: {user.username}")
+            
+            if session.driver_id != user.id:
+                print(f" [GPS] Error: Session {session.id} belongs to driver {session.driver_id}, not user {user.id}")
+                # Let's also check what sessions this user actually has
+                user_sessions = DriverSession.objects.filter(driver=user)
+                active_user_sessions = user_sessions.filter(is_active=True)
+                print(f" [GPS] User {user.id} has {user_sessions.count()} total sessions, {active_user_sessions.count()} active")
+                for s in active_user_sessions:
+                    print(f"  - Active Session {s.id}: Vehicle {s.vehicle.plate_number if s.vehicle else 'None'}")
+                
                 from rest_framework.exceptions import PermissionDenied
                 raise PermissionDenied('You can only add GPS logs to your own session.')
+            
             if not session.is_active:
+                print(f" [GPS] Error: Session {session.id} is not active (is_active=False)")
+                print(f" [GPS] Session {session.id} details | Start: {session.start_time} | End: {session.end_time}")
                 from rest_framework.exceptions import ValidationError
                 raise ValidationError('GPS can only be recorded for an active session.')
-        serializer.save()
+            
+            print(f" [GPS] Session validation passed | Session {session.id} is active and belongs to user {user.id}")
+        
+        # Check if new GPS fields exist in database
+        try:
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute("PRAGMA table_info(patrol_api_gpslog)")
+                columns = [col[1] for col in cursor.fetchall()]
+                new_fields_exist = all(field in columns for field in ['accuracy', 'speed', 'altitude', 'is_valid', 'rejection_reason', 'accuracy_score'])
+            
+            if not new_fields_exist:
+                print(" [GPS] New GPS fields not found in database - using legacy mode")
+                # Save without new fields (legacy mode)
+                serializer.save()
+                print(f" [GPS] Point saved (legacy mode) | Lat: {serializer.validated_data.get('latitude')}, Lon: {serializer.validated_data.get('longitude')}")
+                return
+        except Exception as e:
+            print(f" [GPS] Could not check database schema: {e}")
+        
+        # Validate GPS data quality before saving
+        validated_data = serializer.validated_data
+        latitude = float(validated_data.get('latitude'))
+        longitude = float(validated_data.get('longitude'))
+        timestamp = validated_data.get('timestamp')
+        accuracy = validated_data.get('accuracy')
+        speed = validated_data.get('speed')
+        
+        print(f" [GPS] Data | Lat: {latitude:.6f} | Lon: {longitude:.6f} | Acc: {accuracy or 'N/A'}m | Speed: {speed or 'N/A'} m/s")
+        
+        # Build GPS point for validation
+        point = GPSPoint(
+            latitude=latitude,
+            longitude=longitude,
+            timestamp=timestamp,
+            accuracy=float(accuracy) if accuracy else None,
+            speed=float(speed) if speed else None
+        )
+        
+        # Get previous point for context validation (last valid GPS for this session)
+        previous_point = None
+        try:
+            last_gps = GPSLog.objects.filter(
+                session=session,
+                is_valid=True
+            ).order_by('-timestamp').first()
+            
+            if last_gps:
+                previous_point = GPSPoint(
+                    latitude=float(last_gps.latitude),
+                    longitude=float(last_gps.longitude),
+                    timestamp=last_gps.timestamp,
+                    accuracy=float(last_gps.accuracy) if last_gps.accuracy else None,
+                    speed=float(last_gps.speed) if last_gps.speed else None
+                )
+                print(f" [GPS] Previous point found | {last_gps.timestamp} | ({last_gps.latitude}, {last_gps.longitude})")
+            else:
+                print(f" [GPS] No previous GPS points for session {session.id}")
+        except Exception as e:
+            print(f" [GPS] Error fetching previous point: {e}")
+            pass  # No previous point available
+        
+        # Run validation
+        validation_result = gps_validator.validate_gps_point(point, previous_point)
+        
+        # Enhanced monitoring for low quality scores
+        if validation_result.accuracy_score < 0.6:
+            print(f" [GPS] Low quality point | Score: {validation_result.accuracy_score:.2f} | "
+                  f"Reason: {validation_result.rejected_reason} | "
+                  f"Session: {session.id} | Driver: {request.user.username}")
+        
+        # Save with validation metadata
+        extra_data = {
+            'is_valid': validation_result.is_valid,
+            'rejection_reason': validation_result.rejected_reason,
+            'accuracy_score': validation_result.accuracy_score
+        }
+        
+        try:
+            serializer.save(**extra_data)
+            print(f" [GPS] Point saved | Score: {validation_result.accuracy_score:.2f} | Acc: {point.accuracy or 'N/A'}m | Speed: {point.speed or 'N/A'} m/s")
+        except Exception as save_error:
+            print(f" [GPS] Failed to save GPS point: {save_error}")
+            # Try saving without validation metadata (in case fields don't exist)
+            try:
+                serializer.save()
+                print(f" [GPS] Point saved (fallback mode) | Lat: {latitude:.6f}, Lon: {longitude:.6f}")
+            except Exception as fallback_error:
+                print(f" [GPS] Failed to save even in fallback mode: {fallback_error}")
+                raise fallback_error
+
+    @action(detail=False, methods=['get'], url_path='session-route')
+    def session_route(self, request):
+        """
+        Get GPS route for a specific session with calculated speeds.
+        Used for route history visualization with speed-based coloring.
+        """
+        session_id = request.query_params.get('session_id')
+        if not session_id:
+            return Response(
+                {'error': 'session_id parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Get session details
+            session = DriverSession.objects.get(pk=session_id)
+            
+            # Check permissions
+            user = request.user
+            if user.role == 'DRIVER' and session.driver_id != user.id:
+                return Response(
+                    {'error': 'You can only view your own routes.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            if user.role == 'BRANCH_ADMIN' and session.branch_id != user.branch_id:
+                return Response(
+                    {'error': 'You can only view routes from your branch.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Get GPS logs ordered by timestamp
+            gps_logs = GPSLog.objects.filter(
+                session_id=session_id,
+                is_valid=True
+            ).order_by('timestamp')
+            
+            # Calculate speeds between consecutive points
+            route_points = []
+            prev_point = None
+            
+            for log in gps_logs:
+                point = {
+                    'id': log.id,
+                    'latitude': float(log.latitude),
+                    'longitude': float(log.longitude),
+                    'timestamp': log.timestamp.isoformat(),
+                    'accuracy': float(log.accuracy) if log.accuracy else None,
+                    'altitude': float(log.altitude) if log.altitude else None,
+                }
+                
+                # Calculate speed from previous point
+                if prev_point:
+                    from .gps_validation import GPSValidator
+                    distance = GPSValidator._haversine_distance(
+                        prev_point['latitude'], prev_point['longitude'],
+                        point['latitude'], point['longitude']
+                    )
+                    time_diff = (log.timestamp - prev_point['timestamp']).total_seconds()
+                    
+                    if time_diff > 0:
+                        calculated_speed = distance / time_diff  # m/s
+                        point['calculated_speed'] = round(calculated_speed, 2)
+                        point['calculated_speed_kmh'] = round(calculated_speed * 3.6, 2)
+                    else:
+                        point['calculated_speed'] = 0
+                        point['calculated_speed_kmh'] = 0
+                    
+                    point['distance_from_prev'] = round(distance, 2)
+                else:
+                    point['calculated_speed'] = 0
+                    point['calculated_speed_kmh'] = 0
+                    point['distance_from_prev'] = 0
+                    point['is_start'] = True
+                
+                route_points.append(point)
+                prev_point = {
+                    'latitude': point['latitude'],
+                    'longitude': point['longitude'],
+                    'timestamp': log.timestamp
+                }
+            
+            # Mark end point
+            if route_points:
+                route_points[-1]['is_end'] = True
+            
+            # Calculate total statistics
+            total_distance = sum(p.get('distance_from_prev', 0) for p in route_points)
+            if len(route_points) >= 2:
+                start_time = gps_logs.first().timestamp
+                end_time = gps_logs.last().timestamp
+                duration_seconds = (end_time - start_time).total_seconds()
+                duration_minutes = duration_seconds / 60
+            else:
+                duration_seconds = 0
+                duration_minutes = 0
+            
+            return Response({
+                'session_id': session_id,
+                'driver': session.driver.username if session.driver else None,
+                'vehicle': session.vehicle.plate_number if session.vehicle else None,
+                'branch': session.branch.name if session.branch else None,
+                'start_time': session.start_time.isoformat() if session.start_time else None,
+                'end_time': session.end_time.isoformat() if session.end_time else None,
+                'total_points': len(route_points),
+                'total_distance_meters': round(total_distance, 2),
+                'total_distance_km': round(total_distance / 1000, 2),
+                'duration_seconds': round(duration_seconds, 2),
+                'duration_minutes': round(duration_minutes, 2),
+                'average_speed_kmh': round((total_distance / duration_seconds) * 3.6, 2) if duration_seconds > 0 else 0,
+                'route_points': route_points
+            })
+            
+        except DriverSession.DoesNotExist:
+            return Response(
+                {'error': 'Session not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 # ---------- IncidentReport ----------
@@ -570,6 +889,7 @@ class PingSendView(APIView):
 
             # Send push notification to driver
             try:
+                print(f"📨 [Ping] Sending ping from {request.user.username} to driver ID {driver_id}")
                 success, message = send_ping_notification(
                     driver_id, 
                     request.user.username

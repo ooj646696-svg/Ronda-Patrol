@@ -20,7 +20,7 @@ const getApiBaseUrl = () => {
       return envUrl; // Keep as is for web/simulator
     }
     
-    return envUrl || 'http://192.168.1.25:8000/api';
+    return envUrl || 'http://192.168.1.10:8000/api';
   }
   
   // For development builds or production
@@ -35,28 +35,61 @@ export const api = axios.create({
 });
 
 // Log the API URL for debugging
-console.log('🔗 API Base URL:', BASE_URL);
+console.log('🔗 [API] Base URL:', BASE_URL);
 
 api.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem(STORAGE_KEYS.access);
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  console.log(`📤 [API] ${config.method?.toUpperCase()} ${config.url} 🔄`);
   return config;
 });
 
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    console.log(`✅ [API] ${res.config.method?.toUpperCase()} ${res.config.url} → ${res.status}`);
+    return res;
+  },
   async (err) => {
     const original = err.config;
+    console.error(`❌ [API] ${original?.method?.toUpperCase()} ${original?.url} → ${err.response?.status || 'Network Error'}`);
+    
+    // ADD THIS — logs the actual Django validation error detail
+    if (err.response?.status === 400) {
+      console.error('❌ [API] 400 detail:', JSON.stringify(err.response.data));
+    }
+    
+    // Auto-fix session handling
+    if (err.response?.status === 422 && err.response.data?.auto_fix_session) {
+      console.log(`🔧 [API] Auto-fixing session from ${original.data?.session} to ${err.response.data.auto_fix_session}`);
+      
+      // Update the original request with the correct session
+      if (original.data) {
+        original.data.session = err.response.data.auto_fix_session;
+        
+        // Retry the request with the corrected session
+        try {
+          const response = await api(original);
+          console.log(`✅ [API] Auto-fix successful | ${original?.method?.toUpperCase()} ${original?.url} → ${response.status}`);
+          return response;
+        } catch (retryError) {
+          console.error('❌ [API] Auto-fix retry failed:', retryError);
+        }
+      }
+    }
+    
     if (err.response?.status === 401 && !original._retry) {
       original._retry = true;
+      console.log('🔄 [API] Token expired, attempting refresh...');
       const refresh = await AsyncStorage.getItem(STORAGE_KEYS.refresh);
       if (refresh) {
         try {
           const { data } = await axios.post(`${BASE_URL}/auth/token/refresh/`, { refresh });
+          console.log('✅ [API] Token refreshed successfully');
           await AsyncStorage.setItem(STORAGE_KEYS.access, data.access);
           original.headers.Authorization = `Bearer ${data.access}`;
           return api(original);
         } catch {
+          console.error('❌ [API] Token refresh failed, clearing tokens');
           await AsyncStorage.multiRemove([STORAGE_KEYS.access, STORAGE_KEYS.refresh]);
         }
       }
@@ -89,8 +122,21 @@ export const ronda = {
     stop: (id: number) => api.post(`/sessions/${id}/stop/`).then((r) => r.data),
   },
   gpsLogs: {
-    create: (sessionId: number, latitude: number, longitude: number, timestamp: string) =>
-      api.post('/gps-logs/', { session: sessionId, latitude, longitude, timestamp }).then((r) => r.data),
+    create: (sessionId: number, latitude: number, longitude: number, timestamp: string, accuracy?: number | null, speed?: number | null, altitude?: number | null) => {
+      const payload: any = {
+        session: sessionId,
+        latitude: parseFloat(latitude.toFixed(8)),
+        longitude: parseFloat(longitude.toFixed(8)),
+        timestamp,
+      };
+
+      // Round to reasonable precision - GPS hardware doesn't need more than this
+      if (accuracy != null) payload.accuracy = parseFloat(accuracy.toFixed(2));
+      if (speed != null)    payload.speed    = parseFloat(speed.toFixed(4));
+      if (altitude != null) payload.altitude = parseFloat(altitude.toFixed(2));
+
+      return api.post('/gps-logs/', payload).then((r) => r.data);
+    }
   },
   ping: {
     active: () => api.get('/ping/active/').then((r) => r.data),

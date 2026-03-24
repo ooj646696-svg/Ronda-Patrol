@@ -109,11 +109,53 @@ class DriverSession(models.Model):
 
 
 class GPSLog(models.Model):
-    """GPS log tied to an active session; recorded every ~60 seconds."""
+    """GPS log tied to an active session; recorded every ~60 seconds with quality metadata."""
     session = models.ForeignKey(DriverSession, on_delete=models.CASCADE, related_name='gps_logs')
     latitude = models.DecimalField(max_digits=11, decimal_places=8)
     longitude = models.DecimalField(max_digits=11, decimal_places=8)
     timestamp = models.DateTimeField()
+    
+    # GPS Quality Metadata
+    accuracy = models.DecimalField(
+        max_digits=15, 
+        decimal_places=8, 
+        null=True, 
+        blank=True,
+        help_text='GPS accuracy in meters (lower is better)'
+    )
+    speed = models.DecimalField(
+        max_digits=10, 
+        decimal_places=4, 
+        null=True, 
+        blank=True,
+        help_text='Speed in meters per second'
+    )
+    altitude = models.DecimalField(
+        max_digits=15, 
+        decimal_places=8, 
+        null=True, 
+        blank=True,
+        help_text='Altitude in meters'
+    )
+    
+    # Validation Metadata
+    is_valid = models.BooleanField(
+        default=True,
+        help_text='Whether this GPS point passed validation checks'
+    )
+    rejection_reason = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text='Reason for rejection if validation failed'
+    )
+    accuracy_score = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text='Quality score from 0.0 to 1.0 (higher is better)'
+    )
 
     class Meta:
         ordering = ['-timestamp']
@@ -121,10 +163,12 @@ class GPSLog(models.Model):
             models.Index(fields=['session', 'timestamp']),  # For recent GPS queries
             models.Index(fields=['timestamp']),              # For cleanup jobs
             models.Index(fields=['session']),                # For session-based queries
+            models.Index(fields=['is_valid']),               # For filtering valid points
+            models.Index(fields=['accuracy']),               # For quality filtering
         ]
 
     def __str__(self):
-        return f"GPS {self.session_id} @ {self.timestamp}"
+        return f"GPS {self.session_id} @ {self.timestamp} ({'valid' if self.is_valid else 'invalid'})"
 
 
 class IncidentReport(models.Model):

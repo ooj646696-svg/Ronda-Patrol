@@ -39,6 +39,7 @@ export const sessions = {
 
 export const gpsLogs = {
   list: (params) => api.get('/gps-logs/', { params }).then((r) => r.data),
+  sessionRoute: (sessionId) => api.get(`/gps-logs/session-route/?session_id=${sessionId}`).then((r) => r.data),
 };
 
 export const ping = {

@@ -22,7 +22,7 @@ ALLOWED_HOSTS = [
     h.strip()
     for h in os.environ.get(
         'ALLOWED_HOSTS',
-        'localhost,127.0.0.1,192.168.1.25,192.168.1.26'
+        'localhost,127.0.0.1,192.168.1.10,192.168.1.26'
     ).split(',')
     if h.strip()
 ]
@@ -172,6 +172,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'EXCEPTION_HANDLER': 'patrol_api.views.custom_exception_handler',
 }
 
 

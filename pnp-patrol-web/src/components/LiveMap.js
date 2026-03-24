@@ -157,11 +157,14 @@ function MapZoomToDriver({ driverName, locations }) {
 }
 
 // Persistent trail component that maintains state across updates
-function PersistentTrail({ sessionId, recentPoints }) {
+// Now optional - controlled by showTrails prop
+function PersistentTrail({ sessionId, recentPoints, showTrails }) {
   const [trail, setTrail] = useState([]);
   const polylineRef = useRef(null);
 
   useEffect(() => {
+    // Only process trails if showing is enabled
+    if (!showTrails) return;
     if (!recentPoints || recentPoints.length === 0) return;
 
     // Convert to [lat, lng] format
@@ -177,7 +180,10 @@ function PersistentTrail({ sessionId, recentPoints }) {
         setTrail(newPoints);
       }
     }
-  }, [recentPoints, trail.length, sessionId]);
+  }, [recentPoints, trail.length, sessionId, showTrails]);
+
+  // Don't render if trails disabled
+  if (!showTrails) return null;
 
   return (
     <>
@@ -186,15 +192,16 @@ function PersistentTrail({ sessionId, recentPoints }) {
           ref={polylineRef}
           positions={trail}
           color="#ff6b35"
-          weight={4}
-          opacity={0.8}
+          weight={3}
+          opacity={0.6}
+          dashArray="10, 10"
         />
       )}
     </>
   );
 }
 
-function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging }) {
+function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showTrails }) {
   const filtered = branchFilter
     ? locations.filter((l) => l.branch === branchFilter)
     : locations;
@@ -227,11 +234,14 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging }) {
           
           return (
             <React.Fragment key={`${loc.session_id}-${index}`}>
-              {/* Persistent trail that maintains state */}
-              <PersistentTrail 
-                sessionId={loc.session_id} 
-                recentPoints={loc.recent_points || []}
-              />
+              {/* Optional trail - only shown when toggle is enabled */}
+              {showTrails && (
+                <PersistentTrail 
+                  sessionId={loc.session_id} 
+                  recentPoints={loc.recent_points || []}
+                  showTrails={showTrails}
+                />
+              )}
               
               {/* Current position marker */}
               <Marker 
@@ -352,6 +362,7 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
   const [lastUpdate, setLastUpdate] = useState(null);
   const [selectedDriver, setSelectedDriver] = useState('');
   const [pinging, setPinging] = useState({});
+  const [showTrails, setShowTrails] = useState(false);
   const fetchRef = useRef(null);
 
   const handlePing = async (driverId, driverName) => {
@@ -511,6 +522,16 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
             </select>
           )}
           
+          {/* Trail Toggle Button */}
+          <button
+            className={`trail-toggle ${showTrails ? 'active' : ''}`}
+            onClick={() => setShowTrails(!showTrails)}
+            style={{ marginLeft: '10px' }}
+            title={showTrails ? 'Hide movement trails' : 'Show movement trails'}
+          >
+            {showTrails ? '📍 Trails: ON' : '📍 Trails: OFF'}
+          </button>
+          
           <span className="live-map-updated">
             Real-time updates every 5s. Last: {lastUpdate ? lastUpdate.toLocaleTimeString() : '—'}
           </span>
@@ -524,6 +545,7 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
             userRole={user?.role}
             onPing={handlePing}
             pinging={pinging}
+            showTrails={showTrails}
           />
           <MapCenter center={center} />
           <MapZoomToDriver driverName={selectedDriver} locations={locations} />

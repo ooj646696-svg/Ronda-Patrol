@@ -140,19 +140,94 @@ class DriverSessionSerializer(serializers.ModelSerializer):
 
 
 class GPSLogSerializer(serializers.ModelSerializer):
-    """GPS log create (and read). Only for active session; driver must own session."""
+    """GPS log serializer — stable field definition, no dynamic PRAGMA."""
+    validation_result = serializers.SerializerMethodField(read_only=True)
+
+    # Explicit field definitions — prevents "too many digits" errors
+    # from raw GPS hardware float values
+    accuracy  = serializers.DecimalField(max_digits=8,  decimal_places=2, required=False, allow_null=True)
+    speed     = serializers.DecimalField(max_digits=8,  decimal_places=4, required=False, allow_null=True)
+    altitude  = serializers.DecimalField(max_digits=9,  decimal_places=2, required=False, allow_null=True)
+    latitude  = serializers.DecimalField(max_digits=11, decimal_places=8, required=False)
+    longitude = serializers.DecimalField(max_digits=12, decimal_places=8, required=False)
 
     class Meta:
         model = GPSLog
-        fields = ['id', 'session', 'latitude', 'longitude', 'timestamp']
+        fields = [
+            'id', 'session', 'latitude', 'longitude', 'timestamp',
+            # New optional fields — use required=False so they're accepted
+            # even if DB migration hasn't run yet
+            'accuracy', 'speed', 'altitude',
+            # Validation metadata — read-only, set by views.py
+            'is_valid', 'rejection_reason', 'accuracy_score',
+            'validation_result',
+        ]
+        read_only_fields = ['is_valid', 'rejection_reason', 'accuracy_score']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Gracefully remove fields that don't exist in the DB yet
+        # so the serializer still works before migrations are run
+        existing_field_names = {f.name for f in self.Meta.model._meta.get_fields()}
+        optional_fields = ['accuracy', 'speed', 'altitude', 'is_valid', 'rejection_reason', 'accuracy_score']
+        for field_name in optional_fields:
+            if field_name not in existing_field_names:
+                self.fields.pop(field_name, None)
+
+    def validate(self, attrs):
+        print(f"🔍 [Serializer] Validating GPS data: {attrs}")
+        request = self.context.get('request')
+        if request:
+            print(f"🔍 [Serializer] Request user: {request.user.id} ({request.user.username})")
+        return attrs
 
     def validate_session(self, value):
+        print(f"🔍 [Serializer] Validating session: {value}")
         request = self.context.get('request')
+        
+        # If session doesn't exist, try to find user's active session automatically
+        if not value:
+            print(f"⚠️  [Serializer] No session provided, looking for user's active session")
+            if request and request.user.role == 'DRIVER':
+                from .models import DriverSession
+                active_session = DriverSession.objects.filter(
+                    driver=request.user, 
+                    is_active=True
+                ).first()
+                if active_session:
+                    print(f"✅ [Serializer] Found active session {active_session.id} for user {request.user.username}")
+                    return active_session
+                else:
+                    raise serializers.ValidationError('No active session found for this driver.')
+            raise serializers.ValidationError('Session is required.')
+        
         if request and request.user.role == 'DRIVER' and value.driver_id != request.user.id:
             raise serializers.ValidationError('You can only add GPS logs to your own session.')
         if not value.is_active:
             raise serializers.ValidationError('GPS can only be recorded for an active session.')
+        print(f"✅ [Serializer] Session validation passed")
         return value
+
+    def validate_accuracy(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError('Accuracy cannot be negative.')
+        if value is not None and value > 10000:
+            raise serializers.ValidationError('Accuracy value seems unreasonable (>10000m).')
+        return value
+
+    def validate_speed(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError('Speed cannot be negative.')
+        if value is not None and value > 138.89:
+            raise serializers.ValidationError('Speed exceeds realistic maximum.')
+        return value
+
+    def get_validation_result(self, obj):
+        if hasattr(obj, 'is_valid') and obj.is_valid:
+            score = getattr(obj, 'accuracy_score', 'N/A')
+            return f"Valid (score: {score})"
+        reason = getattr(obj, 'rejection_reason', 'Unknown reason')
+        return f"Invalid: {reason}"
 
 
 class IncidentReportSerializer(serializers.ModelSerializer):

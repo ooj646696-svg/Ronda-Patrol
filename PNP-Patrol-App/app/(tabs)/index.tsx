@@ -23,6 +23,13 @@ import {
   startBackgroundSessionTracking 
 } from '@/lib/backgroundTasks';
 import { setupNotificationListener } from '@/lib/notifications';
+import { 
+  validateGPSPoint, 
+  locationToGPSPoint, 
+  quickValidateLocation,
+  formatValidationResult,
+  gpsValidationManager 
+} from '@/lib/gpsValidation';
 
 // Global event handler for push notifications
 (global as any).emitPingNotification = (pingData: any) => {
@@ -84,6 +91,8 @@ export default function HomeScreen() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const adaptiveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [rejectedGpsCount, setRejectedGpsCount] = useState(0);
+  const [lastValidationMessage, setLastValidationMessage] = useState<string | null>(null);
   const [activePing, setActivePing] = useState<Ping | null>(null);
   const [pingModalVisible, setPingModalVisible] = useState(false);
 
@@ -134,14 +143,88 @@ export default function HomeScreen() {
   }, [user?.id]);
 
   const sendOrQueueGps = useCallback(
-    async (sessionId: number, lat: number, lon: number, timestamp: string) => {
+    async (sessionId: number, location: Location.LocationObject) => {
+      // CRITICAL: Guard — never post if session not ready
+      if (!sessionId) {
+        console.warn('⚠️ [GPS] Skipping — session not initialized yet');
+        return;
+      }
+      
+      // Quick pre-validation
+      const quickCheck = quickValidateLocation(location);
+      if (!quickCheck.valid) {
+        console.log('❌ GPS pre-validation failed:', quickCheck.reason);
+        setRejectedGpsCount(prev => prev + 1);
+        setLastValidationMessage(`Rejected: ${quickCheck.reason}`);
+        return;
+      }
+
+      // Convert to GPS point
+      const gpsPoint = locationToGPSPoint(location);
+      
+      // Full validation with context
+      const validationResult = gpsValidationManager.validate(gpsPoint);
+      
+      console.log('🔍 GPS Validation:', formatValidationResult(validationResult));
+      setLastValidationMessage(formatValidationResult(validationResult));
+      
+      if (!validationResult.isValid) {
+        console.log('❌ GPS rejected by validation:', validationResult.rejectedReason);
+        setRejectedGpsCount(prev => prev + 1);
+        
+        // Still queue if it's just a warning-level rejection (for data completeness)
+        if (validationResult.accuracyScore > 0.3) {
+          console.log('⚠️ GPS below threshold but storing anyway (score > 0.3)');
+        } else {
+          return; // Don't send severely invalid GPS
+        }
+      }
+
+      const { latitude, longitude, accuracy, speed, altitude } = location.coords;
+      const timestamp = new Date().toISOString();
+
       try {
-        await ronda.gpsLogs.create(sessionId, lat, lon, timestamp);
+        await ronda.gpsLogs.create(
+          sessionId, 
+          latitude, 
+          longitude, 
+          timestamp,
+          accuracy,
+          speed,
+          altitude
+        );
         setLastGpsTime(timestamp);
-        console.log('✅ GPS data sent successfully:', { sessionId, lat, lon, timestamp });
+        console.log('✅ GPS data sent successfully:', { 
+          sessionId, 
+          lat: latitude.toFixed(6), 
+          lon: longitude.toFixed(6), 
+          accuracy: accuracy ? `${accuracy.toFixed(1)}m` : 'N/A',
+          speed: speed ? `${(speed * 3.6).toFixed(1)}km/h` : 'N/A',
+          timestamp 
+        });
       } catch (error) {
-        console.log('📦 GPS send failed, queuing data:', { sessionId, lat, lon, timestamp, error });
-        await pushToQueue({ sessionId, latitude: lat, longitude: lon, timestamp });
+        console.log('📦 GPS send failed, queuing data:', { 
+          sessionId, 
+          latitude, 
+          longitude, 
+          timestamp, 
+          accuracy,
+          speed,
+          altitude,
+          error 
+        });
+        await pushToQueue({ 
+          sessionId, 
+          latitude, 
+          longitude, 
+          timestamp,
+          accuracy,
+          speed,
+          altitude,
+          isValid: validationResult.isValid,
+          rejectionReason: validationResult.rejectedReason,
+          accuracyScore: validationResult.accuracyScore
+        });
         const { getQueue } = await import('@/lib/gps-queue');
         const q = await getQueue();
         setQueuedCount(q.length);
@@ -159,13 +242,9 @@ export default function HomeScreen() {
       const loc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      const ts = new Date().toISOString();
-      await sendOrQueueGps(
-        session.id,
-        loc.coords.latitude,
-        loc.coords.longitude,
-        ts
-      );
+      
+      // Use the new sendOrQueueGps with full location object
+      await sendOrQueueGps(session.id, loc);
     } catch (_) {
       // ignore location errors
     }
@@ -216,9 +295,7 @@ export default function HomeScreen() {
       
       await sendOrQueueGps(
         session.id,
-        initialLocation.coords.latitude,
-        initialLocation.coords.longitude,
-        new Date().toISOString()
+        initialLocation
       );
 
       // Start adaptive tracking
@@ -253,9 +330,7 @@ export default function HomeScreen() {
             
             await sendOrQueueGps(
               session.id,
-              currentLocation.coords.latitude,
-              currentLocation.coords.longitude,
-              new Date().toISOString()
+              currentLocation
             );
             
             console.log('🔄 Adaptive GPS update:', {
@@ -300,9 +375,7 @@ export default function HomeScreen() {
           
           await sendOrQueueGps(
             session.id,
-            location.coords.latitude,
-            location.coords.longitude,
-            ts
+            location
           );
 
           // Start/adjust adaptive tracking based on movement
@@ -331,13 +404,15 @@ export default function HomeScreen() {
   }, [session, captureAndSendGps, sendOrQueueGps, stopTracking]);
 
   useEffect(() => {
+    // Only stop tracking if session becomes inactive
+    // GPS tracking is now started manually after session confirmation
     if (!session?.is_active) {
       stopTracking();
       return;
     }
-    startContinuousTracking();
-    return () => stopTracking();
-  }, [session?.id, session?.is_active, startContinuousTracking, stopTracking]);
+    // Don't automatically start tracking here anymore
+    // It's now started manually in handleStartSession after session is confirmed
+  }, [session?.is_active, stopTracking]);
 
   const checkForPings = useCallback(async () => {
     if (!user?.id) return;
@@ -432,14 +507,22 @@ export default function HomeScreen() {
     try {
       console.log('🚗 Starting session with vehicle:', vehicleId);
       const newSession = await ronda.sessions.start(vehicleId ?? undefined);
+      
+      // CRITICAL: Set session first, ensure it's fully stored
       setSession(newSession);
+      console.log('✅ Session stored in state:', newSession.id);
       
       // Start background tracking for this user
       if (user?.id) {
         await startBackgroundSessionTracking(user.id);
       }
       
-      console.log('✅ Session started successfully:', newSession.id);
+      // CRITICAL: Only start GPS tracking AFTER session is confirmed stored
+      // This eliminates the 422 round-trip by ensuring session.id is always available
+      console.log('🚀 Starting GPS tracking with confirmed session:', newSession.id);
+      await startContinuousTracking();
+      
+      console.log('✅ Session and GPS tracking started successfully:', newSession.id);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
         || (e as Error)?.message
@@ -563,13 +646,23 @@ export default function HomeScreen() {
           Session: {session?.is_active ? 'Active' : 'Inactive'}
         </Text>
         {session?.is_active && (
-          <Text style={styles.gpsInfo}>
-            Continuous GPS tracking. Last: {lastGpsTime ? new Date(lastGpsTime).toLocaleTimeString() : '—'}
-          </Text>
-        )}
-        {queuedCount > 0 && (
-          <Text style={styles.queued}>Queued to sync: {queuedCount} point(s)</Text>
-        )}
+        <Text style={styles.gpsInfo}>
+          Continuous GPS tracking. Last: {lastGpsTime ? new Date(lastGpsTime).toLocaleTimeString() : '—'}
+          {lastValidationMessage && (
+            <Text style={styles.validationInfo}>
+              {'\n'}{lastValidationMessage}
+            </Text>
+          )}
+        </Text>
+      )}
+      {rejectedGpsCount > 0 && (
+        <Text style={styles.rejectedCount}>
+          ⚠️ Rejected GPS points: {rejectedGpsCount}
+        </Text>
+      )}
+      {queuedCount > 0 && (
+        <Text style={styles.queued}>Queued to sync: {queuedCount} point(s)</Text>
+      )}
       </View>
 
       {/* Pending Ping Banner */}
@@ -802,7 +895,9 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sessionStatus: { fontSize: 16, color: '#fff', fontWeight: '600' },
-  gpsInfo: { fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 6 },
+  gpsInfo: { fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 8 },
+  validationInfo: { fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 2 },
+  rejectedCount: { fontSize: 12, color: '#ff9800', marginTop: 4 },
   queued: { fontSize: 13, color: '#ffc107', marginTop: 4 },
 
   error: { color: '#f88', marginBottom: 12, fontSize: 14 },

@@ -414,7 +414,7 @@ npm run start:prod
 npm run android:prod
 
 # Override directly
-EXPO_PUBLIC_API_URL=http://192.168.1.25:8000/api npx expo start
+EXPO_PUBLIC_API_URL=http://192.168.1.10:8000/api npx expo start
 ```
 
 #### **Features**
@@ -458,11 +458,11 @@ For testing with physical devices on the same WiFi network:
    ```bash
    # Windows
    ipconfig
-   # Look for "IPv4 Address" (e.g. 192.168.1.25)
+   # Look for "IPv4 Address" (e.g. 192.168.1.10)
    
    # macOS/Linux
    ifconfig | grep "inet "
-   # Look for your local IP (e.g. 192.168.1.25)
+   # Look for your local IP (e.g. 192.168.1.10)
    ```
 
 2. **Configure Django for LAN access:**
@@ -474,7 +474,7 @@ For testing with physical devices on the same WiFi network:
 3. **Update ALLOWED_HOSTS in `backend/settings.py`:**
    ```python
    # Add your IP to ALLOWED_HOSTS
-   ALLOWED_HOSTS = ["127.0.0.1", "localhost", "192.168.1.25", "192.168.1.26"]
+   ALLOWED_HOSTS = ["127.0.0.1", "localhost", "192.168.1.10", "192.168.1.26"]
    ```
 
 4. **Configure mobile app (NEW - Dynamic Setup):**
@@ -498,8 +498,8 @@ For testing with physical devices on the same WiFi network:
    **Option B: Manual Configuration**
    ```bash
    # Create/update .env in PNP-Patrol-App
-   EXPO_PUBLIC_API_URL=http://192.168.1.25:8000/api
-   EXPO_PUBLIC_WS_URL=ws://192.168.1.25:8000/ws/
+   EXPO_PUBLIC_API_URL=http://192.168.1.10:8000/api
+   EXPO_PUBLIC_WS_URL=ws://192.168.1.10:8000/ws/
    ```
 
 5. **Start Expo:**
@@ -512,7 +512,7 @@ npx expo install expo-notifications
 6. **Configure Expo Go (if needed):**
    - Shake device in Expo Go
    - Tap "Configure Bundler" or "Dev Settings"
-   - Set "Debug server host & port for device" to: `192.168.1.25:8081`
+   - Set "Debug server host & port for device" to: `192.168.1.10:8081`
 
 #### **Method 2: Tunnel Mode (Recommended for Easy Setup)**
 
@@ -578,7 +578,7 @@ npm install
 **Django Connection Issues:**
 ```bash
 # Verify Django is accessible
-curl http://192.168.1.25:8000/api/
+curl http://192.168.1.10:8000/api/
 
 # Check ALLOWED_HOSTS includes your IP
 grep ALLOWED_HOSTS backend/settings.py

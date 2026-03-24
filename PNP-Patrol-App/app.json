@@ -55,8 +55,8 @@
       [
         "expo-notifications",
         {
-          "mode": "development",
-          "useFirebase": false
+          "mode": "production",
+          "useFirebase": true
         }
       ]
     ],
