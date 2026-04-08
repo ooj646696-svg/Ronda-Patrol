@@ -22,7 +22,7 @@ ALLOWED_HOSTS = [
     h.strip()
     for h in os.environ.get(
         'ALLOWED_HOSTS',
-        'localhost,127.0.0.1,192.168.1.10,192.168.1.26'
+        'localhost,127.0.0.1,192.168.1.10,192.168.1.26,192.168.1.59,192.168.1.18'
     ).split(',')
     if h.strip()
 ]
@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'corsheaders',
     'patrol_api',
+    'apps.vehicles',
 ]
 
 MIDDLEWARE = [

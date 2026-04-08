@@ -56,7 +56,7 @@ const VideoCall = ({ call, onEndCall, currentUser }) => {
       setLocalStream(stream);
 
       // Initialize WebSocket connection
-      const wsUrl = `ws://192.168.1.10:8000/ws/call/?token=${localStorage.getItem('access_token')}`;
+      const wsUrl = `ws://192.168.1.18:8000/ws/call/?token=${localStorage.getItem('access_token')}`;
       const ws = new WebSocket(wsUrl);
       websocketRef.current = ws;
 

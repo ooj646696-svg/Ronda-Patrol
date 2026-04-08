@@ -1,6 +1,8 @@
+// VideoCallScreen temporarily disabled due to WebRTC compatibility issues
+/*
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { RTCPeerConnection, RTCIceCandidate, RTCSessionDescription, mediaDevices } from 'react-native-webrtc';
+// import { RTCPeerConnection, RTCIceCandidate, RTCSessionDescription, mediaDevices } from 'react-native-webrtc';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { getAccessToken, getApiBaseUrl, getWsBaseUrl } from '../lib/endpoints';
@@ -243,152 +245,157 @@ const VideoCallScreen = ({ route, navigation }) => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerText}>Call with {call.initiator_name}</Text>
-          <Text style={styles.subHeaderText}>
-            {isConnected ? 'Connected' : 'Connecting...'} • {formatDuration(callDuration)}
-          </Text>
-        </View>
-        <TouchableOpacity style={styles.endButton} onPress={handleEndCall}>
-          <Text style={styles.endButtonText}>End Call</Text>
-        </TouchableOpacity>
-      </View>
+//       {/* Header */
+//       <View style={styles.header}>
+//         <View>
+//           <Text style={styles.headerText}>Call with {call.initiator_name}</Text>
+//           <Text style={styles.subHeaderText}>
+//             {isConnected ? 'Connected' : 'Connecting...'} • {formatDuration(callDuration)}
+//           </Text>
+//         </View>
+//         <TouchableOpacity style={styles.endButton} onPress={handleEndCall}>
+//           <Text style={styles.endButtonText}>End Call</Text>
+//         </TouchableOpacity>
+//       </View>
 
-      {/* Video Area */}
-      <View style={styles.videoContainer}>
-        {/* Remote Video */}
-        {remoteStream ? (
-          <RTCView
-            streamURL={remoteStream.toURL()}
-            style={styles.remoteVideo}
-            objectFit="cover"
-          />
-        ) : (
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>Connecting...</Text>
-          </View>
-        )}
+//       {/* Video Area */}
+//       <View style={styles.videoContainer}>
+//         {/* Remote Video */}
+//         {remoteStream ? (
+//           <RTCView
+//             streamURL={remoteStream.toURL()}
+//             style={styles.remoteVideo}
+//             objectFit="cover"
+//           />
+//         ) : (
+//           <View style={styles.placeholder}>
+//             <Text style={styles.placeholderText}>Connecting...</Text>
+//           </View>
+//         )}
 
-        {/* Local Video */}
-        {localStream && (
-          <RTCView
-            streamURL={localStream.toURL()}
-            style={styles.localVideo}
-            objectFit="cover"
-            mirror={true}
-          />
-        )}
-      </View>
+//         {/* Local Video */}
+//         {localStream && (
+//           <RTCView
+//             streamURL={localStream.toURL()}
+//             style={styles.localVideo}
+//             objectFit="cover"
+//             mirror={true}
+//           />
+//         )}
+//       </View>
 
-      {/* Controls */}
-      <View style={styles.controls}>
-        <TouchableOpacity 
-          style={[styles.controlButton, isMuted && styles.controlButtonActive]} 
-          onPress={toggleMute}
-        >
-          <Text style={styles.controlButtonText}>
-            {isMuted ? '🎤' : '🔇'}
-          </Text>
-        </TouchableOpacity>
+//       {/* Controls */}
+//       <View style={styles.controls}>
+//         <TouchableOpacity 
+//           style={[styles.controlButton, isMuted && styles.controlButtonActive]} 
+//           onPress={toggleMute}
+//         >
+//           <Text style={styles.controlButtonText}>
+//             {isMuted ? '🎤' : '🔇'}
+//           </Text>
+//         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.controlButton, isVideoOff && styles.controlButtonActive]} 
-          onPress={toggleVideo}
-        >
-          <Text style={styles.controlButtonText}>
-            {isVideoOff ? '📷' : '📹'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
+//         <TouchableOpacity 
+//           style={[styles.controlButton, isVideoOff && styles.controlButtonActive]} 
+//           onPress={toggleVideo}
+//         >
+//           <Text style={styles.controlButtonText}>
+//             {isVideoOff ? '📷' : '📹'}
+//           </Text>
+//         </TouchableOpacity>
+//       </View>
+//     </View>
+//   );
+// };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: 'black',
-  },
-  header: {
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  subHeaderText: {
-    color: 'white',
-    fontSize: 12,
-    opacity: 0.8,
-    marginTop: 4,
-  },
-  endButton: {
-    backgroundColor: '#dc3545',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 4,
-  },
-  endButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  videoContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  remoteVideo: {
-    width: '100%',
-    height: '100%',
-  },
-  localVideo: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 120,
-    height: 90,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: 'white',
-  },
-  placeholder: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#333',
-  },
-  placeholderText: {
-    color: 'white',
-    fontSize: 18,
-  },
-  controls: {
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    paddingVertical: 20,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 20,
-  },
-  controlButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#28a745',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  controlButtonActive: {
-    backgroundColor: '#dc3545',
-  },
-  controlButtonText: {
-    fontSize: 24,
-  },
-});
+// const styles = StyleSheet.create({
+//   container: {
+//     flex: 1,
+//     backgroundColor: 'black',
+//   },
+//   header: {
+//     backgroundColor: 'rgba(0,0,0,0.8)',
+//     paddingVertical: 15,
+//     paddingHorizontal: 20,
+//     flexDirection: 'row',
+//     justifyContent: 'space-between',
+//     alignItems: 'center',
+//   },
+//   headerText: {
+//     color: 'white',
+//     fontSize: 18,
+//     fontWeight: 'bold',
+//   },
+//   subHeaderText: {
+//     color: 'white',
+//     fontSize: 12,
+//     opacity: 0.8,
+//     marginTop: 4,
+//   },
+//   endButton: {
+//     backgroundColor: '#dc3545',
+//     paddingHorizontal: 16,
+//     paddingVertical: 8,
+//     borderRadius: 4,
+//   },
+//   endButtonText: {
+//     color: 'white',
+//     fontWeight: 'bold',
+//   },
+//   videoContainer: {
+//     flex: 1,
+//     position: 'relative',
+//   },
+//   remoteVideo: {
+//     width: '100%',
+//     height: '100%',
+//   },
+//   localVideo: {
+//     position: 'absolute',
+//     bottom: 20,
+//     right: 20,
+//     width: 120,
+//     height: 90,
+//     borderRadius: 8,
+//     borderWidth: 2,
+//     borderColor: 'white',
+//   },
+//   placeholder: {
+//     flex: 1,
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//     backgroundColor: '#333',
+//   },
+//   placeholderText: {
+//     color: 'white',
+//     fontSize: 18,
+//   },
+//   controls: {
+//     backgroundColor: 'rgba(0,0,0,0.8)',
+//     paddingVertical: 20,
+//     flexDirection: 'row',
+//     justifyContent: 'center',
+//     gap: 20,
+//   },
+//   controlButton: {
+//     width: 60,
+//     height: 60,
+//     borderRadius: 30,
+//     backgroundColor: '#28a745',
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//   },
+//   controlButtonActive: {
+//     backgroundColor: '#dc3545',
+//   },
+//   controlButtonText: {
+//     fontSize: 24,
+//   },
+// });
 
-export default VideoCallScreen;
+// export default VideoCallScreen;
+// */
+
+// // Dummy export to prevent import errors
+// const VideoCallScreen = () => null;
+// export default VideoCallScreen;

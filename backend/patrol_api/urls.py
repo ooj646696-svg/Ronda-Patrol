@@ -33,6 +33,7 @@ from .notifications import (
     unregister_push_token,
     NotificationRegistrationView,
 )
+from . import urls_snapshots
 
 router = DefaultRouter()
 router.register(r'branches', BranchViewSet, basename='branch')
@@ -58,4 +59,5 @@ urlpatterns = [
     path('notifications/unregister/', unregister_push_token, name='unregister_push_token'),
     path('notifications/', NotificationRegistrationView.as_view(), name='notification_registration'),
     path('', include(router.urls)),
+    path('', include(urls_snapshots.urlpatterns)),
 ]

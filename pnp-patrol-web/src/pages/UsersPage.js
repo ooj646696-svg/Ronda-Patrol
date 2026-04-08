@@ -23,6 +23,7 @@ export function UsersPage() {
     role: 'DRIVER',
     branch: '',
   });
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     async function load() {
@@ -55,6 +56,7 @@ export function UsersPage() {
       branch: user.branch?.id || '',
     });
     setError('');
+    setFieldErrors({});
   };
 
   const handleDelete = async (userId) => {
@@ -72,16 +74,18 @@ export function UsersPage() {
   const handleUpdate = async (e) => {
     e.preventDefault();
     setError('');
+    setFieldErrors({});
+    
     if (!form.username || !form.role) {
       setError('Username and role are required.');
       return;
     }
     if (form.password && form.password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+      setFieldErrors({ password: 'Password must be at least 6 characters long.' });
       return;
     }
     if (form.password !== form.confirmPassword) {
-      setError('Passwords do not match.');
+      setFieldErrors({ confirmPassword: 'Passwords do not match.' });
       return;
     }
     
@@ -113,10 +117,20 @@ export function UsersPage() {
       });
       setEditingUser(null);
     } catch (e) {
-      const msg = e?.response?.data && typeof e.response.data === 'object'
-        ? JSON.stringify(e.response.data)
-        : e.message || 'Failed to save user';
-      setError(msg);
+      // Handle field-specific validation errors
+      if (e?.response?.data?.error && e?.response?.data?.details) {
+        const errorData = e.response.data;
+        if (typeof errorData.details === 'object') {
+          setFieldErrors(errorData.details);
+        } else {
+          setError(errorData.details || errorData.error);
+        }
+      } else if (e?.response?.data && typeof e.response.data === 'object') {
+        // Handle any other object errors
+        setFieldErrors(e.response.data);
+      } else {
+        setError(e.message || 'Failed to save user');
+      }
     } finally {
       setSaving(false);
     }
@@ -185,7 +199,11 @@ export function UsersPage() {
                 value={form.username}
                 onChange={handleChange}
                 required
+                className={fieldErrors.username ? 'field-error' : ''}
               />
+              {fieldErrors.username && (
+                <span className="field-error-message">{fieldErrors.username}</span>
+              )}
             </label>
             <label>
               Email
@@ -194,7 +212,11 @@ export function UsersPage() {
                 name="email"
                 value={form.email}
                 onChange={handleChange}
+                className={fieldErrors.email ? 'field-error' : ''}
               />
+              {fieldErrors.email && (
+                <span className="field-error-message">{fieldErrors.email}</span>
+              )}
             </label>
             <label>
               Password
@@ -203,9 +225,13 @@ export function UsersPage() {
                 name="password"
                 value={form.password}
                 onChange={handleChange}
-                required
+                required={!editingUser}
                 minLength="6"
+                className={fieldErrors.password ? 'field-error' : ''}
               />
+              {fieldErrors.password && (
+                <span className="field-error-message">{fieldErrors.password}</span>
+              )}
             </label>
             <label>
               Confirm Password
@@ -214,23 +240,28 @@ export function UsersPage() {
                 name="confirmPassword"
                 value={form.confirmPassword}
                 onChange={handleChange}
-                required
+                required={!editingUser}
                 minLength="6"
-                className={form.confirmPassword && form.password !== form.confirmPassword ? 'password-mismatch' : ''}
+                className={fieldErrors.confirmPassword || (form.confirmPassword && form.password !== form.confirmPassword) ? 'field-error' : ''}
               />
-              {form.confirmPassword && form.password !== form.confirmPassword && (
-                <span className="password-error">Passwords do not match</span>
+              {(fieldErrors.confirmPassword || (form.confirmPassword && form.password !== form.confirmPassword)) && (
+                <span className="field-error-message">
+                  {fieldErrors.confirmPassword || 'Passwords do not match'}
+                </span>
               )}
             </label>
             <label>
               Role
-              <select name="role" value={form.role} onChange={handleChange}>
+              <select name="role" value={form.role} onChange={handleChange} className={fieldErrors.role ? 'field-error' : ''}>
                 {ROLES.map((r) => (
                   <option key={r.value} value={r.value}>
                     {r.label}
                   </option>
                 ))}
               </select>
+              {fieldErrors.role && (
+                <span className="field-error-message">{fieldErrors.role}</span>
+              )}
             </label>
             <label>
               Branch
@@ -262,6 +293,7 @@ export function UsersPage() {
                     branch: '',
                   });
                   setError('');
+                  setFieldErrors({});
                 }}
               >
                 Cancel

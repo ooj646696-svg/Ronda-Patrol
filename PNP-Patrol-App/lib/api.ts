@@ -111,6 +111,8 @@ export const ronda = {
   auth: {
     login: (username: string, password: string) =>
       api.post<{ access: string; refresh: string }>('/auth/token/', { username, password }).then((r) => r.data),
+    // TODO: Add profile endpoint when backend implements it
+    // profile: () => api.get('/auth/profile/').then((r) => r.data),
   },
   vehicles: {
     list: () => api.get('/vehicles/').then((r) => r.data),

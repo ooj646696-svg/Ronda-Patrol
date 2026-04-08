@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import { useAuth } from '@/lib/auth-context';
-import { ronda } from '@/lib/api';
+import { useDatabase } from '@/lib/database-provider';
+import { ronda, api } from '@/lib/api';
 import { pushToQueue, flushQueue, getQueue } from '@/lib/gps-queue';
 import { useRouter } from 'expo-router';
 import NotificationsTest from '@/components/NotificationsTest';
@@ -23,6 +24,8 @@ import {
   startBackgroundSessionTracking 
 } from '@/lib/backgroundTasks';
 import { setupNotificationListener } from '@/lib/notifications';
+import VehicleCamera from '@/components/VehicleCamera';
+import { photoService } from '@/services/photoService';
 import { 
   validateGPSPoint, 
   locationToGPSPoint, 
@@ -78,6 +81,7 @@ type Ping = {
 
 export default function HomeScreen() {
   const { user, logout } = useAuth();
+  const { isInitialized, isInitializing, error: dbError } = useDatabase();
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -87,6 +91,9 @@ export default function HomeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [lastGpsTime, setLastGpsTime] = useState<string | null>(null);
   const [queuedCount, setQueuedCount] = useState(0);
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraMode, setCameraMode] = useState<'pre_shift' | 'post_shift'>('pre_shift');
+  const [requiredShots, setRequiredShots] = useState<string[]>([]);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const adaptiveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -117,14 +124,26 @@ export default function HomeScreen() {
 
   const fetchVehicles = useCallback(async () => {
     try {
-      const data = await ronda.vehicles.list();
-      const list = Array.isArray(data) ? data : data.results || [];
+      console.log('🚗 Fetching vehicles from backend...');
+      console.log('🚗 User branchId:', user?.branchId);
+      
+      // Try to filter by branch if user has branchId
+      const url = user?.branchId 
+        ? `/vehicles/?branch_id=${user.branchId}`
+        : '/vehicles/';
+      
+      console.log('🚗 Vehicles API URL:', url);
+      const response = await api.get(url);
+      console.log('🚗 Vehicles response:', response.data);
+      const list = Array.isArray(response.data) ? response.data : response.data?.results || [];
+      console.log('🚗 Processed vehicles list:', list);
       setVehicles(list);
       if (list.length === 1) setSelectedVehicleId((list[0] as Vehicle).id);
-    } catch (_) {
+    } catch (error) {
+      console.error('Error fetching vehicles:', error);
       setVehicles([]);
     }
-  }, []);
+  }, [user?.branchId]);
 
   useEffect(() => {
     if (!session?.is_active) fetchVehicles();
@@ -488,7 +507,71 @@ export default function HomeScreen() {
     return () => sub.remove();
   }, [fetchSessions]);
 
-  const handleStartSession = async () => {
+  const handlePreShiftPhotos = async (vehicleId: number) => {
+    try {
+      console.log('📸 Getting required photos for vehicle:', vehicleId);
+      const requirements = await photoService.getRequiredPhotos(vehicleId);
+      console.log('📋 Required shots:', requirements.required_shots);
+      setRequiredShots(requirements.required_shots);
+      setCameraMode('pre_shift');
+      setShowCamera(true);
+    } catch (error) {
+      console.error('❌ Error getting photo requirements:', error);
+      Alert.alert('Error', 'Failed to get photo requirements. Starting session without photos.');
+      // Continue with session start even if photos fail
+      handleStartSessionDirectly(vehicleId);
+    }
+  };
+
+  const handlePhotosComplete = async (photos: any[]) => {
+    try {
+      console.log('📸 Photos captured:', photos.length);
+      // Use default vehicle ID for testing (no vehicle requirement)
+      const vehicleId = 1; // Default vehicle for testing
+      
+      // Upload photos
+      setActionLoading(true);
+      const result = await photoService.uploadBatchPhotos(photos, vehicleId, cameraMode);
+      
+      // Handle the new response format (object with submission data)
+      if (result && result.message && result.message.includes('success')) {
+        Alert.alert('Success', `${result.photo_count || photos.length} photos uploaded successfully!`);
+      } else if (Array.isArray(result)) {
+        // Legacy format - array of upload results
+        const queuedCount = result.filter((r: any) => r.queued).length;
+        const uploadedCount = result.filter((r: any) => r.uploaded).length;
+        
+        if (queuedCount > 0) {
+          Alert.alert(
+            'Photos Queued', 
+            `${queuedCount} photos were queued for upload when the backend is ready. They will be uploaded automatically.`
+          );
+        } else if (uploadedCount > 0) {
+          Alert.alert('Success', `${uploadedCount} photos uploaded successfully!`);
+        }
+      } else {
+        // Default success message
+        Alert.alert('Success', `${photos.length} photos uploaded successfully!`);
+      }
+      
+      setShowCamera(false);
+      
+      // Now handle based on camera mode
+      if (cameraMode === 'pre_shift') {
+        handleStartSessionDirectly(vehicleId);
+      } else if (cameraMode === 'post_shift') {
+        // Post-shift photos complete, now stop the session
+        stopSessionDirectly();
+        Alert.alert('Success', 'Post-shift photos uploaded successfully!');
+      }
+    } catch (error) {
+      console.error('❌ Error uploading photos:', error);
+      Alert.alert('Error', 'Failed to upload photos. Please try again.');
+      setActionLoading(false);
+    }
+  };
+
+  const handleStartSessionDirectly = async (vehicleId: number | null) => {
     if (vehicles.length === 0) {
       Alert.alert('No vehicles', 'No vehicles are assigned to your branch. Contact your branch admin.');
       return;
@@ -502,7 +585,7 @@ export default function HomeScreen() {
       Alert.alert('Location required', 'Allow location access to record patrol GPS.');
       return;
     }
-    const vehicleId = vehicles.length === 1 ? vehicles[0].id : selectedVehicleId ?? null;
+    
     setActionLoading(true);
     try {
       console.log('🚗 Starting session with vehicle:', vehicleId);
@@ -534,7 +617,39 @@ export default function HomeScreen() {
     }
   };
 
+  const handleStartSession = async () => {
+    const vehicleId = vehicles.length === 1 ? vehicles[0].id : selectedVehicleId ?? null;
+    if (!vehicleId) {
+      Alert.alert('Select vehicle', 'Choose which vehicle you are using before starting a session.');
+      return;
+    }
+    
+    // Start with pre-shift photos
+    handlePreShiftPhotos(vehicleId);
+  };
+
   const handleStopSession = async () => {
+    if (!session?.id) return;
+    
+    const vehicleId = vehicles.length === 1 ? vehicles[0].id : selectedVehicleId ?? 0;
+    
+    // Start with post-shift photos
+    try {
+      console.log('📸 Getting post-shift photos for vehicle:', vehicleId);
+      const requirements = await photoService.getRequiredPhotos(vehicleId);
+      console.log('📋 Required shots:', requirements.required_shots);
+      setRequiredShots(requirements.required_shots);
+      setCameraMode('post_shift');
+      setShowCamera(true);
+    } catch (error) {
+      console.error('❌ Error getting photo requirements:', error);
+      Alert.alert('Error', 'Failed to get photo requirements. Stopping session without photos.');
+      // Continue with session stop even if photos fail
+      stopSessionDirectly();
+    }
+  };
+
+  const stopSessionDirectly = async () => {
     if (!session?.id) return;
     setActionLoading(true);
     try {
@@ -619,6 +734,21 @@ export default function HomeScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* User Info Debug */}
+      <View style={styles.debugInfo}>
+        <Text style={styles.debugTitle}>🔍 Debug Info</Text>
+        <Text style={styles.debugText}>User: {user?.username}</Text>
+        <Text style={styles.debugText}>Role: {user?.role}</Text>
+        <Text style={styles.debugText}>User ID: {user?.id}</Text>
+        <Text style={styles.debugText}>Branch ID: {user?.branchId}</Text>
+        <Text style={styles.debugText}>Vehicles: {vehicles.length}</Text>
+        <Text style={styles.debugText}>🗄️ SQLite: {isInitializing ? 'Initializing...' : isInitialized ? '✅ Ready' : '❌ Error'}</Text>
+        {dbError && <Text style={styles.debugText}>🗄️ DB Error: {dbError}</Text>}
+        {vehicles.map((v, i) => (
+          <Text key={v.id} style={styles.debugText}>  - {v.plate_number} (ID: {v.id})</Text>
+        ))}
+      </View>
+
       <View style={styles.header}>
         <Text style={styles.title}>R.O.N.D.A. Driver</Text>
         <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
@@ -730,6 +860,20 @@ export default function HomeScreen() {
         onRespond={handlePingResponse}
         onClose={handleRespondLater}
       />
+      
+      {showCamera && (
+        <VehicleCamera
+          vehicleId={vehicles.length === 1 ? vehicles[0].id : selectedVehicleId ?? 0}
+          shiftId={session?.id}
+          photoType={cameraMode}
+          requiredShots={requiredShots}
+          onPhotosComplete={handlePhotosComplete}
+          onClose={() => {
+            setShowCamera(false);
+            setActionLoading(false);
+          }}
+        />
+      )}
       
       {/* Notification Test Component */}
       <NotificationsTest />
@@ -865,14 +1009,32 @@ const pingModalStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f1c2e' },
-  content: { padding: 20, paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: '#0d1f2c' },
+  content: { padding: 20 },
+  debugInfo: {
+    backgroundColor: '#2a2a2a',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#444',
+  },
+  debugTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#ccc',
+    marginBottom: 2,
+  },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f1c2e' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
   },
   title: { fontSize: 20, fontWeight: '700', color: '#fff' },
   logoutBtn: { paddingVertical: 8, paddingHorizontal: 12 },

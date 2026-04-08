@@ -8,7 +8,7 @@ R.O.N.D.A. — API ViewSets.
 from django.utils import timezone
 from datetime import timedelta
 from django.db import models
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView, exception_handler
@@ -184,6 +184,45 @@ class UserViewSet(viewsets.ModelViewSet):
         if self.action in ('create', 'update', 'partial_update'):
             return UserCreateUpdateSerializer
         return UserListSerializer
+
+    def create(self, request, *args, **kwargs):
+        """Create user with better error handling for password validation"""
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            
+            # Return the created user data
+            user = serializer.instance
+            response_serializer = UserListSerializer(user, context={'request': request})
+            
+            return Response({
+                'message': 'User created successfully',
+                'user': response_serializer.data
+            }, status=status.HTTP_201_CREATED)
+            
+        except serializers.ValidationError as e:
+            # Handle validation errors (including password validation)
+            error_data = e.detail
+            if isinstance(error_data, dict):
+                # Flatten password validation errors
+                if 'password' in error_data:
+                    password_errors = error_data['password']
+                    if isinstance(password_errors, list):
+                        error_data['password'] = password_errors[0] if password_errors else 'Password validation failed'
+                    else:
+                        error_data['password'] = str(password_errors)
+            
+            return Response({
+                'error': 'Validation failed',
+                'details': error_data
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to create user',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def destroy(self, request, *args, **kwargs):
         try:
@@ -399,17 +438,15 @@ class DriverSessionViewSet(viewsets.ModelViewSet):
 
         vehicle = None
         if vehicle_id:
-            vehicle = Vehicle.objects.filter(pk=vehicle_id, branch_id=driver.branch_id).first()
+            vehicle = Vehicle.objects.filter(pk=vehicle_id).first()
+            # Don't fail if vehicle not found, just proceed without it
             if not vehicle:
-                return Response({'detail': 'Vehicle not found or not in your branch.'}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            vehicle = Vehicle.objects.filter(branch_id=driver.branch_id).first()
-            if not vehicle:
-                return Response({'detail': 'No vehicle assigned to your branch.'}, status=status.HTTP_400_BAD_REQUEST)
-
+                print(f"⚠️ Vehicle {vehicle_id} not found, proceeding without vehicle")
+        
+        # Create session - vehicle is now optional
         session = DriverSession.objects.create(
             driver=driver,
-            vehicle=vehicle,
+            vehicle=vehicle,  # Can be None
             branch=driver.branch,
             start_time=timezone.now(),
             is_active=True,

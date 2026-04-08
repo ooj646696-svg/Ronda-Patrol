@@ -20,12 +20,15 @@ const AuthContext = createContext<{
 
 function parseJwtPayload(token: string): User {
   const payload = JSON.parse(atob(token.split('.')[1]));
-  return {
+  const user = {
     id: payload.user_id || payload.id,
     username: payload.username || payload.sub,
     role: payload.role || 'DRIVER',
     branchId: payload.branch_id ?? null,
   };
+  console.log('🔍 Parsed user from JWT:', user);
+  console.log('🔍 Full JWT payload:', payload);
+  return user;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -66,6 +69,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const u = parseJwtPayload(tokens.access);
     setUser(u);
     await AsyncStorage.setItem(USER_KEY, JSON.stringify(u));
+    
+    // TODO: Add profile fetch when backend implements /auth/profile/ endpoint
+    console.log('🔍 User logged in with JWT data only:', u);
+    
     return u;
   }, []);
 
