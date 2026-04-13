@@ -12,6 +12,8 @@ import {
   Modal,
 } from 'react-native';
 import * as Location from 'expo-location';
+import { startOfflineSession } from '@/lib/offlineSession';
+import { trySyncOfflineSession } from '@/lib/offlineSync';
 import { useAuth } from '@/lib/auth-context';
 import { useDatabase } from '@/lib/database-provider';
 import { ronda, api } from '@/lib/api';
@@ -61,6 +63,16 @@ type Session = {
   end_time: string | null;
 };
 
+type OfflineSessionLike = {
+  id: number;
+  is_active: boolean;
+  driver_username: string;
+  vehicle_plate?: string;
+  branch_name?: string;
+  start_time: string;
+  end_time: string | null;
+};
+
 type Vehicle = {
   id: number;
   plate_number: string;
@@ -84,6 +96,7 @@ export default function HomeScreen() {
   const { isInitialized, isInitializing, error: dbError } = useDatabase();
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
+  const sessionRef = useRef<Session | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,11 +125,39 @@ export default function HomeScreen() {
       setError(null);
     } catch (e: unknown) {
       const msg = (e as Error)?.message || 'Failed to load session';
-      setError(msg);
+      console.error('❌ Failed to load sessions:', e);
+      setError(String(msg));
     } finally {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const syncOfflineSession = async () => {
+      try {
+        const res = await trySyncOfflineSession();
+        if (res.synced && res.serverSessionId) {
+          console.log('✅ Offline session synced. Server session:', res.serverSessionId);
+          await fetchSessions();
+        }
+      } catch (e) {
+        // Stay quiet; sync will retry.
+      }
+    };
+
+    timer = setInterval(syncOfflineSession, 15000);
+    syncOfflineSession();
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [fetchSessions]);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   useEffect(() => {
     fetchSessions();
@@ -173,7 +214,7 @@ export default function HomeScreen() {
       const quickCheck = quickValidateLocation(location);
       if (!quickCheck.valid) {
         console.log('❌ GPS pre-validation failed:', quickCheck.reason);
-        setRejectedGpsCount(prev => prev + 1);
+        setRejectedGpsCount((prev: number) => prev + 1);
         setLastValidationMessage(`Rejected: ${quickCheck.reason}`);
         return;
       }
@@ -189,7 +230,7 @@ export default function HomeScreen() {
       
       if (!validationResult.isValid) {
         console.log('❌ GPS rejected by validation:', validationResult.rejectedReason);
-        setRejectedGpsCount(prev => prev + 1);
+        setRejectedGpsCount((prev: number) => prev + 1);
         
         // Still queue if it's just a warning-level rejection (for data completeness)
         if (validationResult.accuracyScore > 0.3) {
@@ -288,8 +329,8 @@ export default function HomeScreen() {
     console.log('⏹️ All GPS tracking stopped');
   }, []);
 
-  const startContinuousTracking = useCallback(async () => {
-    if (!session?.is_active) {
+  const startContinuousTracking = useCallback(async (activeSession: Session) => {
+    if (!activeSession?.is_active) {
       console.log('⚠️ Cannot start tracking: No active session');
       return;
     }
@@ -305,7 +346,7 @@ export default function HomeScreen() {
         return;
       }
 
-      console.log('🚀 Starting adaptive GPS tracking for session:', session.id);
+      console.log('🚀 Starting adaptive GPS tracking for session:', activeSession.id);
 
       // Get initial position
       const initialLocation = await Location.getCurrentPositionAsync({
@@ -313,7 +354,7 @@ export default function HomeScreen() {
       });
       
       await sendOrQueueGps(
-        session.id,
+        activeSession.id,
         initialLocation
       );
 
@@ -335,7 +376,7 @@ export default function HomeScreen() {
 
         // Set new adaptive interval
         adaptiveIntervalRef.current = setInterval(async () => {
-          if (!session?.is_active) {
+          if (!sessionRef.current?.is_active) {
             console.log('⏹️ Session no longer active, stopping adaptive tracking');
             stopTracking();
             return;
@@ -348,7 +389,7 @@ export default function HomeScreen() {
             const currentSpeed = currentLocation.coords.speed || 0;
             
             await sendOrQueueGps(
-              session.id,
+              activeSession.id,
               currentLocation
             );
             
@@ -378,13 +419,13 @@ export default function HomeScreen() {
           distanceInterval: MIN_DISTANCE_METERS,
         },
         async (location) => {
-          if (!session?.is_active) return;
+          if (!sessionRef.current?.is_active) return;
           
           const speed = location.coords.speed || 0;
           const ts = new Date().toISOString();
           
           console.log('📍 GPS Movement Detected:', {
-            sessionId: session.id,
+            sessionId: activeSession.id,
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
             accuracy: location.coords.accuracy,
@@ -393,7 +434,7 @@ export default function HomeScreen() {
           });
           
           await sendOrQueueGps(
-            session.id,
+            activeSession.id,
             location
           );
 
@@ -589,7 +630,8 @@ export default function HomeScreen() {
     setActionLoading(true);
     try {
       console.log('🚗 Starting session with vehicle:', vehicleId);
-      const newSession = await ronda.sessions.start(vehicleId ?? undefined);
+      const sessionStartTimeIso = new Date().toISOString();
+      const newSession = await ronda.sessions.start(vehicleId ?? undefined, sessionStartTimeIso);
       
       // CRITICAL: Set session first, ensure it's fully stored
       setSession(newSession);
@@ -603,14 +645,39 @@ export default function HomeScreen() {
       // CRITICAL: Only start GPS tracking AFTER session is confirmed stored
       // This eliminates the 422 round-trip by ensuring session.id is always available
       console.log('🚀 Starting GPS tracking with confirmed session:', newSession.id);
-      await startContinuousTracking();
+      await startContinuousTracking(newSession);
       
       console.log('✅ Session and GPS tracking started successfully:', newSession.id);
     } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-        || (e as Error)?.message
-        || 'Failed to start session';
       console.error('❌ Failed to start session:', e);
+
+      const maybeAxios = e as any;
+      const status = maybeAxios?.response?.status;
+      const isNetworkError = !maybeAxios?.response;
+      const isOfflineStart = isNetworkError || status === 0;
+
+      if (isOfflineStart) {
+        const offlineStartTimeIso = new Date().toISOString();
+        const offline = await startOfflineSession(vehicleId ?? null, offlineStartTimeIso);
+
+        const localSession: OfflineSessionLike = {
+          id: offline.local_numeric_id,
+          is_active: true,
+          driver_username: user?.username || 'driver',
+          start_time: offline.start_time,
+          end_time: null,
+        };
+
+        setSession(localSession as any);
+        console.log('📴 Started offline session:', offline.local_id);
+        Alert.alert('Offline Mode', 'Session started offline. It will sync automatically when internet is available.');
+
+        console.log('🚀 Starting GPS tracking for offline session:', localSession.id);
+        await startContinuousTracking(localSession as any);
+        return;
+      }
+
+      const msg = maybeAxios?.response?.data?.detail || maybeAxios?.message || 'Failed to start session';
       Alert.alert('Error', String(msg));
     } finally {
       setActionLoading(false);
@@ -655,6 +722,7 @@ export default function HomeScreen() {
     try {
       console.log('🛑 Stopping session:', session.id);
       await ronda.sessions.stop(session.id);
+      stopTracking();
       setSession(null);
       setLastGpsTime(null);
       console.log('✅ Session stopped successfully');

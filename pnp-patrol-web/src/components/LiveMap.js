@@ -156,6 +156,89 @@ function MapZoomToDriver({ driverName, locations }) {
   return null;
 }
 
+function MatchedTrail({ sessionId, showTrails, fallbackPoints }) {
+  const [matchedPositions, setMatchedPositions] = useState(null);
+  const [lastFetchedAt, setLastFetchedAt] = useState(null);
+  const [lastFetchedTimestamp, setLastFetchedTimestamp] = useState(null);
+
+  const latestFallbackTimestamp = (() => {
+    if (!fallbackPoints || fallbackPoints.length === 0) return null;
+    const last = fallbackPoints[fallbackPoints.length - 1];
+    return last && last.timestamp ? String(last.timestamp) : null;
+  })();
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!showTrails) return;
+    if (!sessionId) return;
+
+    const now = Date.now();
+    const timestampUnchanged =
+      latestFallbackTimestamp && lastFetchedTimestamp && latestFallbackTimestamp === lastFetchedTimestamp;
+    if (timestampUnchanged && lastFetchedAt && now - lastFetchedAt < 30000) return;
+    if (!latestFallbackTimestamp && lastFetchedAt && now - lastFetchedAt < 30000) return;
+
+    (async () => {
+      try {
+        const data = await ronda.sessions.matchedRoute(sessionId, { limit: 200, valid_only: 1 });
+        const geom = data && data.matched_geometry;
+        const coords = geom && geom.type === 'LineString' ? geom.coordinates : null;
+        if (!coords || coords.length < 2) {
+          if (!cancelled) setMatchedPositions(null);
+          return;
+        }
+
+        const positions = coords
+          .map((c) => {
+            if (!Array.isArray(c) || c.length < 2) return null;
+            const lon = Number(c[0]);
+            const lat = Number(c[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+            return [lat, lon];
+          })
+          .filter(Boolean);
+
+        if (!cancelled) {
+          setMatchedPositions(positions.length >= 2 ? positions : null);
+          setLastFetchedAt(now);
+          setLastFetchedTimestamp(latestFallbackTimestamp);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setMatchedPositions(null);
+          setLastFetchedAt(now);
+          setLastFetchedTimestamp(latestFallbackTimestamp);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, showTrails, lastFetchedAt, latestFallbackTimestamp, lastFetchedTimestamp]);
+
+  if (!showTrails) return null;
+
+  if (matchedPositions && matchedPositions.length > 1) {
+    return (
+      <Polyline
+        positions={matchedPositions}
+        color="#2563eb"
+        weight={4}
+        opacity={0.85}
+      />
+    );
+  }
+
+  return (
+    <PersistentTrail
+      sessionId={sessionId}
+      recentPoints={fallbackPoints || []}
+      showTrails={showTrails}
+    />
+  );
+}
+
 // Persistent trail component that maintains state across updates
 // Now optional - controlled by showTrails prop
 function PersistentTrail({ sessionId, recentPoints, showTrails }) {
@@ -236,10 +319,10 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
             <React.Fragment key={`${loc.session_id}-${index}`}>
               {/* Optional trail - only shown when toggle is enabled */}
               {showTrails && (
-                <PersistentTrail 
-                  sessionId={loc.session_id} 
-                  recentPoints={loc.recent_points || []}
+                <MatchedTrail
+                  sessionId={loc.session_id}
                   showTrails={showTrails}
+                  fallbackPoints={loc.recent_points || []}
                 />
               )}
               

@@ -4,10 +4,24 @@ Branch Admin can only create/assign DRIVER accounts for their branch.
 """
 
 from rest_framework import serializers
+from decimal import Decimal, ROUND_HALF_UP
 from django.contrib.auth.password_validation import validate_password
 
 from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport, PingRequest, PingStatus, VideoCall
 from .models import Role, CallStatus
+
+
+class QuantizedDecimalField(serializers.DecimalField):
+    def to_internal_value(self, data):
+        if data is None or data == '':
+            return super().to_internal_value(data)
+        try:
+            dec = Decimal(str(data))
+            quant = Decimal('1').scaleb(-int(self.decimal_places))
+            data = str(dec.quantize(quant, rounding=ROUND_HALF_UP))
+        except Exception:
+            pass
+        return super().to_internal_value(data)
 
 
 class UserLogoutSerializer(serializers.Serializer):
@@ -148,8 +162,8 @@ class GPSLogSerializer(serializers.ModelSerializer):
     accuracy  = serializers.DecimalField(max_digits=8,  decimal_places=2, required=False, allow_null=True)
     speed     = serializers.DecimalField(max_digits=8,  decimal_places=4, required=False, allow_null=True)
     altitude  = serializers.DecimalField(max_digits=9,  decimal_places=2, required=False, allow_null=True)
-    latitude  = serializers.DecimalField(max_digits=11, decimal_places=8, required=False)
-    longitude = serializers.DecimalField(max_digits=12, decimal_places=8, required=False)
+    latitude  = QuantizedDecimalField(max_digits=11, decimal_places=8, required=False)
+    longitude = QuantizedDecimalField(max_digits=12, decimal_places=8, required=False)
 
     class Meta:
         model = GPSLog
@@ -222,6 +236,24 @@ class GPSLogSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Speed exceeds realistic maximum.')
         return value
 
+    def validate_latitude(self, value):
+        if value is None:
+            return value
+        try:
+            dec = Decimal(str(value))
+        except Exception:
+            return value
+        return dec.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
+
+    def validate_longitude(self, value):
+        if value is None:
+            return value
+        try:
+            dec = Decimal(str(value))
+        except Exception:
+            return value
+        return dec.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
+
     def get_validation_result(self, obj):
         if hasattr(obj, 'is_valid') and obj.is_valid:
             score = getattr(obj, 'accuracy_score', 'N/A')
@@ -243,11 +275,20 @@ class IncidentReportSerializer(serializers.ModelSerializer):
 class DriverSessionStartSerializer(serializers.Serializer):
     """Payload to start a session: vehicle_id (optional if only one vehicle per branch)."""
     vehicle_id = serializers.IntegerField(required=False)
+    start_time = serializers.DateTimeField(required=False)
 
     def validate_vehicle_id(self, value):
         from .models import Vehicle
         if not Vehicle.objects.filter(pk=value).exists():
             raise serializers.ValidationError('Vehicle not found.')
+        return value
+
+    def validate_start_time(self, value):
+        if value is None:
+            return value
+        from django.utils import timezone
+        if timezone.is_naive(value):
+            value = timezone.make_aware(value, timezone.get_current_timezone())
         return value
 
 
@@ -283,8 +324,8 @@ class PingResponseSerializer(serializers.Serializer):
     """Serializer for driver responding to ping."""
     ping_id = serializers.IntegerField()
     response = serializers.ChoiceField(choices=['YES', 'NO', 'NEED_ASSISTANCE'])
-    latitude = serializers.DecimalField(max_digits=11, decimal_places=8, required=False)
-    longitude = serializers.DecimalField(max_digits=11, decimal_places=8, required=False)
+    latitude = QuantizedDecimalField(max_digits=11, decimal_places=8, required=False)
+    longitude = QuantizedDecimalField(max_digits=11, decimal_places=8, required=False)
     
     def validate_ping_id(self, value):
         from .models import PingRequest

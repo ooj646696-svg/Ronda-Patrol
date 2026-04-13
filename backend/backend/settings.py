@@ -11,6 +11,18 @@ import dj_database_url
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+_env_path = BASE_DIR / '.env'
+if _env_path.exists():
+    for _line in _env_path.read_text(encoding='utf-8').splitlines():
+        _line = _line.strip()
+        if not _line or _line.startswith('#') or '=' not in _line:
+            continue
+        _k, _v = _line.split('=', 1)
+        _k = _k.strip()
+        _v = _v.strip().strip('"').strip("'")
+        if _k and _k not in os.environ:
+            os.environ[_k] = _v
+
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-@1lf^=fhmg^ucfb7dabcgokxox!brov*@7!1a!_=y)omf*cd-2')
@@ -18,11 +30,13 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-@1lf^=fhmg^ucf
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True').lower() in ('1', 'true', 'yes', 'on')
 
+ORS_API_KEY = os.environ.get('ORS_API_KEY', '')
+
 ALLOWED_HOSTS = [
     h.strip()
     for h in os.environ.get(
         'ALLOWED_HOSTS',
-        'localhost,127.0.0.1,192.168.1.10,192.168.1.26,192.168.1.59,192.168.1.18'
+        'localhost,127.0.0.1,192.168.1.10,192.168.1.26,192.168.1.59,192.168.1.18,192.168.211.167'
     ).split(',')
     if h.strip()
 ]

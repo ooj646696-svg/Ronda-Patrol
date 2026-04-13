@@ -55,7 +55,8 @@ class GPSValidator:
     def validate_gps_point(
         self, 
         point: GPSPoint,
-        previous_point: Optional[GPSPoint] = None
+        previous_point: Optional[GPSPoint] = None,
+        allow_stale: bool = False
     ) -> GPSValidationResult:
         """
         Perform comprehensive validation on a single GPS point.
@@ -86,7 +87,7 @@ class GPSValidator:
             )
         
         # Check 3: GPS age
-        age_check = self._check_gps_age(point.timestamp)
+        age_check = self._check_gps_age(point.timestamp, allow_stale=allow_stale)
         if not age_check.is_valid:
             return age_check
         
@@ -121,8 +122,10 @@ class GPSValidator:
         return (self.MIN_LAT <= lat <= self.MAX_LAT and 
                 self.MIN_LON <= lon <= self.MAX_LON)
     
-    def _check_gps_age(self, timestamp: datetime) -> GPSValidationResult:
+    def _check_gps_age(self, timestamp: datetime, allow_stale: bool = False) -> GPSValidationResult:
         """Validate GPS data is not too old"""
+        if allow_stale:
+            return GPSValidationResult(is_valid=True, accuracy_score=1.0)
         now = datetime.now(timezone.utc)
         
         # Ensure timestamp is timezone-aware

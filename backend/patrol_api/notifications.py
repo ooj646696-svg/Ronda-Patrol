@@ -2,6 +2,7 @@
 Push notification management for R.O.N.D.A.
 """
 import requests
+from django.utils import timezone
 from django.conf import settings
 from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes

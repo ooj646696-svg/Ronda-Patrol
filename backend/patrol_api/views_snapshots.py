@@ -107,11 +107,13 @@ class VehiclePhotoViewSet(viewsets.ModelViewSet):
         from .models import Vehicle
         vehicle = get_object_or_404(Vehicle, id=vehicle_id)
         
-        # Get requirements for this vehicle type
-        requirements = PhotoRequirement.objects.filter(
-            vehicle_type=vehicle.vehicle_type,
-            is_active=True
-        ).first()
+        vehicle_type = getattr(vehicle, 'vehicle_type', None)
+        requirements = None
+        if vehicle_type is not None:
+            requirements = PhotoRequirement.objects.filter(
+                vehicle_type=vehicle_type,
+                is_active=True
+            ).first()
         
         if requirements:
             return Response({

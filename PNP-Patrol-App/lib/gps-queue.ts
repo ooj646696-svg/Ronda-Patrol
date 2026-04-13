@@ -2,7 +2,7 @@
  * R.O.N.D.A. — Offline GPS queue: store when offline, sync when online.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ronda } from './api';
+import { api, ronda } from './api';
 
 const QUEUE_KEY = '@ronda_gps_queue';
 
@@ -17,6 +17,20 @@ export interface QueuedGps {
   isValid?: boolean;
   rejectionReason?: string;
   accuracyScore?: number;
+}
+
+export async function remapSessionId(oldSessionId: number, newSessionId: number): Promise<number> {
+  const queue = await getQueue();
+  let updated = 0;
+  const next = queue.map((item) => {
+    if (item.sessionId === oldSessionId) {
+      updated++;
+      return { ...item, sessionId: newSessionId };
+    }
+    return item;
+  });
+  await setQueue(next);
+  return updated;
 }
 
 export async function getQueue(): Promise<QueuedGps[]> {
@@ -50,14 +64,17 @@ export async function flushQueue(): Promise<{ sent: number; failed: number }> {
   const remaining: QueuedGps[] = [];
   for (const item of queue) {
     try {
-      await ronda.gpsLogs.create(
-        item.sessionId,
-        item.latitude,
-        item.longitude,
-        item.timestamp,
-        item.accuracy,
-        item.speed,
-        item.altitude
+      await api.post(
+        '/gps-logs/?allow_stale=1',
+        {
+          session: item.sessionId,
+          latitude: item.latitude,
+          longitude: item.longitude,
+          timestamp: item.timestamp,
+          ...(item.accuracy != null ? { accuracy: item.accuracy } : {}),
+          ...(item.speed != null ? { speed: item.speed } : {}),
+          ...(item.altitude != null ? { altitude: item.altitude } : {}),
+        }
       );
       sent++;
     } catch (error: any) {

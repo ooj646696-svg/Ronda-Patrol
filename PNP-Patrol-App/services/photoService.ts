@@ -43,7 +43,7 @@ class PhotoService {
    */
   async getRequiredPhotos(vehicleId: number): Promise<{ required_shots: string[] }> {
     try {
-      const response = await api.get(`/vehicle-photos/vehicle-photos/required/?vehicle_id=${vehicleId}`);
+      const response = await api.get(`/vehicle-photos/photos/required/?vehicle_id=${vehicleId}`);
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 404) {
@@ -108,7 +108,7 @@ class PhotoService {
         formData.append('notes', photoData.notes);
       }
 
-      const apiResponse = await api.post('/vehicle-photos/vehicle-photos/', formData, {
+      const apiResponse = await api.post('/vehicle-photos/photos/', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -219,7 +219,7 @@ class PhotoService {
    */
   async getShiftPhotoStatus(shiftId: number): Promise<ShiftPhotoStatus> {
     try {
-      const response = await api.get(`/vehicle-photos/vehicle-photos/shift_status/?shift_id=${shiftId}`);
+      const response = await api.get(`/vehicle-photos/photos/shift_status/?shift_id=${shiftId}`);
       return response.data;
     } catch (error) {
       console.error('Error getting shift photo status:', error);
@@ -232,7 +232,7 @@ class PhotoService {
    */
   async getShiftPhotos(shiftId: number): Promise<any[]> {
     try {
-      const response = await api.get(`/vehicle-photos/vehicle-photos/?shift_id=${shiftId}`);
+      const response = await api.get(`/vehicle-photos/photos/?shift_id=${shiftId}`);
       return response.data;
     } catch (error) {
       console.error('Error getting shift photos:', error);
@@ -241,49 +241,6 @@ class PhotoService {
   }
 
   /**
-   * Get current user's photo history (using existing endpoint)
-   */
-  async getUserPhotoHistory(page = 1, limit = 20): Promise<any> {
-    try {
-      // Use the existing photos endpoint with user filter
-      const response = await api.get(`/vehicle-photos/vehicle-photos/?page=${page}&limit=${limit}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error getting user photo history:', error);
-      return { results: [], count: 0, next: null, previous: null };
-    }
-  }
-
-  /**
-   * Get photos for branch admins (using existing endpoint)
-   */
-  async getBranchPhotoHistory(page = 1, limit = 20): Promise<any> {
-    try {
-      // Use the existing photos endpoint - backend should filter by branch for admins
-      const response = await api.get(`/vehicle-photos/vehicle-photos/?page=${page}&limit=${limit}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error getting branch photo history:', error);
-      return { results: [], count: 0, next: null, previous: null };
-    }
-  }
-
-  /**
-   * Get photos for a specific driver (using existing endpoint)
-   */
-  async getDriverPhotoHistory(driverId: number, page = 1, limit = 20): Promise<any> {
-    try {
-      // Use the existing photos endpoint with driver filter
-      const response = await api.get(`/vehicle-photos/vehicle-photos/?driver_id=${driverId}&page=${page}&limit=${limit}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error getting driver photo history:', error);
-      return { results: [], count: 0, next: null, previous: null };
-    }
-  }
-
-  /**
-   * Queue photos for offline upload
    */
   async queuePhotosForUpload(
     vehicleId: number,

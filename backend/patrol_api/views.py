@@ -8,6 +8,8 @@ R.O.N.D.A. — API ViewSets.
 from django.utils import timezone
 from datetime import timedelta
 from django.db import models
+from django.conf import settings
+import requests
 from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -435,6 +437,7 @@ class DriverSessionViewSet(viewsets.ModelViewSet):
         ser = DriverSessionStartSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         vehicle_id = ser.validated_data.get('vehicle_id')
+        requested_start_time = ser.validated_data.get('start_time')
 
         vehicle = None
         if vehicle_id:
@@ -448,7 +451,7 @@ class DriverSessionViewSet(viewsets.ModelViewSet):
             driver=driver,
             vehicle=vehicle,  # Can be None
             branch=driver.branch,
-            start_time=timezone.now(),
+            start_time=requested_start_time or timezone.now(),
             is_active=True,
         )
         return Response(DriverSessionSerializer(session).data, status=status.HTTP_201_CREATED)
@@ -467,13 +470,12 @@ class DriverSessionViewSet(viewsets.ModelViewSet):
         return Response(DriverSessionSerializer(session).data)
 
 
-# ---------- Live locations ----------
 class LiveLocationsView(APIView):
     """
     GET: Branch Admin sees live vehicle locations for their branch.
     Super Admin sees all branches.
     """
-    permission_classes = [IsBranchAdmin]
+    permission_classes = [DRFIsAuthenticated]
 
     def get(self, request):
         try:
@@ -482,23 +484,26 @@ class LiveLocationsView(APIView):
                 sessions = DriverSession.objects.filter(is_active=True).select_related('driver', 'vehicle', 'branch')
             elif user.role == 'BRANCH_ADMIN' and user.branch_id:
                 sessions = DriverSession.objects.filter(is_active=True, branch_id=user.branch_id).select_related('driver', 'vehicle', 'branch')
+            elif user.role == 'DRIVER':
+                sessions = DriverSession.objects.filter(is_active=True, driver=user).select_related('driver', 'vehicle', 'branch')
             else:
                 sessions = DriverSession.objects.none()
 
-            three_minutes_ago = timezone.now() - timedelta(minutes=3)
+            ten_minutes_ago = timezone.now() - timedelta(minutes=10)
             results = []
 
             for s in sessions:
                 try:
                     recent_gps = GPSLog.objects.filter(
                         session=s,
-                        timestamp__gte=three_minutes_ago
+                        timestamp__gte=ten_minutes_ago
                     ).order_by('timestamp')
 
                     # Filter GPS points through validation - only show valid points
                     valid_gps_points = []
                     rejected_count = 0
                     previous_point = None
+                    last_valid_gps = None
                     
                     for g in recent_gps:
                         try:
@@ -533,6 +538,7 @@ class LiveLocationsView(APIView):
                                 'timestamp': g.timestamp.isoformat(),
                                 'accuracy': float(g.accuracy) if hasattr(g, 'accuracy') and g.accuracy else None,
                             })
+                            last_valid_gps = g
                             
                         except (ValueError, TypeError) as e:
                             print(f"Invalid GPS data for session {s.id}: {e}")
@@ -541,11 +547,21 @@ class LiveLocationsView(APIView):
                     
                     # Log validation summary
                     if rejected_count > 0:
-                        print(f"📡 [LiveLocations] Session {s.id}: ✅ {len(valid_gps_points)} valid GPS points | ⚠️ {rejected_count} rejected")
+                        print(f" [LiveLocations] Session {s.id}: {len(valid_gps_points)} valid GPS points | {rejected_count} rejected")
                     else:
-                        print(f"📡 [LiveLocations] Session {s.id}: ✅ {len(valid_gps_points)} valid GPS points")
+                        print(f" [LiveLocations] Session {s.id}: {len(valid_gps_points)} valid GPS points")
 
-                    last_gps = recent_gps.last() if recent_gps.exists() else None
+                    last_gps = last_valid_gps
+                    if last_gps is None:
+                        last_gps = GPSLog.objects.filter(session=s).order_by('-timestamp').first()
+                        if last_gps is not None:
+                            try:
+                                lat = float(last_gps.latitude)
+                                lon = float(last_gps.longitude)
+                                if not (4.0 <= lat <= 21.0 and 112.0 <= lon <= 131.0):
+                                    last_gps = None
+                            except (ValueError, TypeError):
+                                last_gps = None
 
                     # Get recent ping info for this driver
                     recent_ping = PingRequest.objects.filter(
@@ -567,8 +583,8 @@ class LiveLocationsView(APIView):
                         'session_id': s.id,
                         'driver': s.driver.username,
                         'driver_id': s.driver.id,
-                        'vehicle': s.vehicle.plate_number,
-                        'branch': s.branch.code,
+                        'vehicle': s.vehicle.plate_number if s.vehicle else None,
+                        'branch': s.branch.code if s.branch else None,
                         'latitude': float(last_gps.latitude) if last_gps else None,
                         'longitude': float(last_gps.longitude) if last_gps else None,
                         'timestamp': last_gps.timestamp.isoformat() if last_gps else None,
@@ -578,12 +594,12 @@ class LiveLocationsView(APIView):
                     })
 
                 except Exception as e:
-                    print(f"❌ [LiveLocations] Error processing session {s.id}: {e}")
+                    print(f" [LiveLocations] Error processing session {s.id}: {e}")
                     results.append({
                         'session_id': s.id,
                         'driver': s.driver.username,
-                        'vehicle': s.vehicle.plate_number,
-                        'branch': s.branch.code,
+                        'vehicle': s.vehicle.plate_number if s.vehicle else None,
+                        'branch': s.branch.code if s.branch else None,
                         'latitude': None,
                         'longitude': None,
                         'timestamp': None,
@@ -594,11 +610,284 @@ class LiveLocationsView(APIView):
             return Response(results)
 
         except Exception as e:
-            print(f"🔥 [LiveLocations] Critical error: {e}")
+            print(f" [LiveLocations] Critical error: {e}")
             return Response(
                 {'error': 'Failed to load live locations', 'detail': str(e)},
                 status=500
             )
+
+
+class SessionMatchedRouteView(APIView):
+    permission_classes = [DRFIsAuthenticated]
+
+    def get(self, request, pk: int):
+        user = request.user
+
+        try:
+            session = DriverSession.objects.select_related('driver', 'branch').get(pk=pk)
+        except DriverSession.DoesNotExist:
+            return Response({'detail': 'Session not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.role == 'DRIVER' and session.driver_id != user.id:
+            return Response({'detail': 'You can only view your own session route.'}, status=status.HTTP_403_FORBIDDEN)
+        if user.role == 'BRANCH_ADMIN' and user.branch_id and session.branch_id != user.branch_id:
+            return Response({'detail': 'You can only view routes from your branch.'}, status=status.HTTP_403_FORBIDDEN)
+
+        ors_key = getattr(settings, 'ORS_API_KEY', None)
+        if not ors_key:
+            return Response({'detail': 'ORS_API_KEY is not configured.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        profile = request.query_params.get('profile', 'driving-car')
+        limit = int(request.query_params.get('limit', '200') or 200)
+        limit = max(2, min(limit, 500))
+
+        valid_only = (request.query_params.get('valid_only', '0') or '0').lower() in ('1', 'true', 'yes', 'on')
+
+        qs = GPSLog.objects.filter(session=session).order_by('timestamp')
+        if valid_only and hasattr(GPSLog, 'is_valid'):
+            qs = qs.filter(is_valid=True)
+
+        # Use the most recent points so the matched route aligns with the live marker (latest GPS).
+        logs = list(qs.order_by('-timestamp')[:limit])
+        logs.sort(key=lambda g: g.timestamp)
+        if len(logs) < 2:
+            return Response({'detail': 'Not enough GPS points to match.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        coords = []
+        radiuses = []
+        for g in logs:
+            try:
+                lat = float(g.latitude)
+                lon = float(g.longitude)
+            except (TypeError, ValueError):
+                continue
+
+            if not (4.0 <= lat <= 21.0 and 112.0 <= lon <= 131.0):
+                continue
+
+            coords.append([lon, lat])
+            acc = None
+            if hasattr(g, 'accuracy') and g.accuracy is not None:
+                try:
+                    acc = float(g.accuracy)
+                except (TypeError, ValueError):
+                    acc = None
+            if acc is None:
+                radiuses.append(50)
+            else:
+                radiuses.append(int(max(25, min(acc * 2, 200))))
+
+        if len(coords) < 2:
+            return Response({'detail': 'Not enough valid GPS points to match.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        ors_max_points = int(request.query_params.get('ors_max_points', '70') or 70)
+        ors_max_points = max(2, min(ors_max_points, 200))
+
+        deduped_coords = []
+        deduped_radiuses = []
+        for c, r in zip(coords, radiuses):
+            if not deduped_coords:
+                deduped_coords.append(c)
+                deduped_radiuses.append(r)
+                continue
+            prev = deduped_coords[-1]
+            if abs(c[0] - prev[0]) < 1e-7 and abs(c[1] - prev[1]) < 1e-7:
+                continue
+            deduped_coords.append(c)
+            deduped_radiuses.append(r)
+
+        coords = deduped_coords
+        radiuses = deduped_radiuses
+
+        if len(coords) < 2:
+            return Response({'detail': 'Not enough GPS points to match after de-duplication.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(coords) > ors_max_points:
+            n = len(coords)
+            target = ors_max_points
+
+            if target >= n:
+                pass
+            else:
+                selected_idxs = [0]
+                if target > 2:
+                    for i in range(1, target - 1):
+                        idx = int(round(i * (n - 1) / (target - 1)))
+                        selected_idxs.append(idx)
+                selected_idxs.append(n - 1)
+
+                deduped_idxs = []
+                seen = set()
+                for idx in selected_idxs:
+                    if idx in seen:
+                        continue
+                    seen.add(idx)
+                    deduped_idxs.append(idx)
+                deduped_idxs.sort()
+
+                coords = [coords[i] for i in deduped_idxs]
+                radiuses = [radiuses[i] for i in deduped_idxs]
+
+            if len(coords) < 2:
+                return Response({'detail': 'Not enough GPS points to match after downsampling.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        url = f"https://api.openrouteservice.org/v2/matching/{profile}/geojson"
+        headers = {
+            'Authorization': ors_key,
+            'Content-Type': 'application/json',
+            'Accept': 'application/geo+json',
+        }
+        payload = {
+            'coordinates': coords,
+            'radiuses': radiuses[: len(coords)],
+        }
+
+        def _post(_payload):
+            return requests.post(url, json=_payload, headers=headers, timeout=20)
+
+        try:
+            resp = _post(payload)
+        except requests.RequestException as e:
+            return Response({'detail': f'Failed to contact ORS: {e}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        # If ORS complains about a specific coordinate being non-routable, drop that point and retry.
+        # This prevents a single bad GPS point from failing the entire match.
+        drop_attempts = 0
+        while resp.status_code >= 400 and 'Could not find routable point' in (resp.text or '') and drop_attempts < 5 and len(coords) > 2:
+            try:
+                import re
+
+                m = re.search(r'coordinate\s+(\d+):', resp.text)
+                if not m:
+                    break
+                idx = int(m.group(1)) - 1
+                if idx < 0 or idx >= len(coords):
+                    break
+
+                coords.pop(idx)
+                radiuses.pop(idx)
+                payload = {
+                    'coordinates': coords,
+                    'radiuses': radiuses[: len(coords)],
+                }
+
+                drop_attempts += 1
+                resp = _post(payload)
+            except Exception:
+                break
+
+        # Final retry: widen radiuses if still non-routable.
+        if resp.status_code >= 400 and 'Could not find routable point' in (resp.text or ''):
+            try:
+                retry_payload = {
+                    **payload,
+                    'radiuses': [int(max(r, 100)) for r in radiuses[: len(coords)]],
+                }
+                resp = _post(retry_payload)
+            except requests.RequestException:
+                pass
+
+        if resp.status_code == 404:
+            try:
+                snap_url = f"https://api.openrouteservice.org/v2/snap/{profile}/json"
+                snap_headers = {
+                    'Authorization': ors_key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                }
+                snap_payload = {
+                    'locations': coords,
+                    'radius': 150,
+                }
+                snap_resp = requests.post(snap_url, json=snap_payload, headers=snap_headers, timeout=20)
+                if snap_resp.status_code < 400:
+                    snap_data = snap_resp.json() or {}
+                    snapped = snap_data.get('locations') or []
+                    snapped_coords = []
+                    for item in snapped:
+                        if not item:
+                            continue
+                        loc = item.get('location') if isinstance(item, dict) else None
+                        if not loc or not isinstance(loc, list) or len(loc) < 2:
+                            continue
+                        try:
+                            lon = float(loc[0])
+                            lat = float(loc[1])
+                        except (TypeError, ValueError):
+                            continue
+                        snapped_coords.append([lon, lat])
+
+                    if len(snapped_coords) >= 2:
+                        directions_url = f"https://api.openrouteservice.org/v2/directions/{profile}/geojson"
+                        directions_headers = {
+                            'Authorization': ors_key,
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/geo+json',
+                        }
+                        directions_payload = {
+                            'coordinates': snapped_coords,
+                        }
+
+                        try:
+                            directions_resp = requests.post(
+                                directions_url,
+                                json=directions_payload,
+                                headers=directions_headers,
+                                timeout=20,
+                            )
+                        except requests.RequestException:
+                            directions_resp = None
+
+                        if directions_resp is not None and directions_resp.status_code < 400:
+                            directions_data = directions_resp.json() or {}
+                            features = directions_data.get('features') or []
+                            geom = features[0].get('geometry') if features else None
+                            if geom:
+                                return Response({
+                                    'session_id': session.id,
+                                    'driver': session.driver.username if session.driver else None,
+                                    'total_input_points': len(coords),
+                                    'matched_geometry': geom,
+                                    'raw': {'snap': snap_data, 'directions': directions_data},
+                                })
+
+                        return Response({
+                            'session_id': session.id,
+                            'driver': session.driver.username if session.driver else None,
+                            'total_input_points': len(coords),
+                            'matched_geometry': {'type': 'LineString', 'coordinates': snapped_coords},
+                            'raw': snap_data,
+                        })
+            except Exception:
+                pass
+
+        if resp.status_code >= 400:
+            print(
+                f" [ORS] Map matching error | HTTP {resp.status_code} | Session: {session.id} | "
+                f"Points: {len(coords)} | URL: {url} | Response: {resp.text[:500]}"
+            )
+            try:
+                return Response(
+                    {'detail': 'ORS error', 'ors_status': resp.status_code, 'ors': resp.json()},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            except Exception:
+                return Response(
+                    {'detail': 'ORS error', 'ors_status': resp.status_code, 'ors': resp.text},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+        data = resp.json()
+        features = data.get('features') or []
+        geom = features[0].get('geometry') if features else None
+
+        return Response({
+            'session_id': session.id,
+            'driver': session.driver.username if session.driver else None,
+            'total_input_points': len(coords),
+            'matched_geometry': geom,
+            'raw': data,
+        })
 
 
 # ---------- GPSLog ----------
@@ -683,6 +972,8 @@ class GPSLogViewSet(viewsets.ModelViewSet):
         accuracy = validated_data.get('accuracy')
         speed = validated_data.get('speed')
         
+        allow_stale = (self.request.query_params.get('allow_stale') or '0').lower() in ('1', 'true', 'yes', 'on')
+        
         print(f" [GPS] Data | Lat: {latitude:.6f} | Lon: {longitude:.6f} | Acc: {accuracy or 'N/A'}m | Speed: {speed or 'N/A'} m/s")
         
         # Build GPS point for validation
@@ -718,13 +1009,13 @@ class GPSLogViewSet(viewsets.ModelViewSet):
             pass  # No previous point available
         
         # Run validation
-        validation_result = gps_validator.validate_gps_point(point, previous_point)
+        validation_result = gps_validator.validate_gps_point(point, previous_point, allow_stale=allow_stale)
         
         # Enhanced monitoring for low quality scores
         if validation_result.accuracy_score < 0.6:
             print(f" [GPS] Low quality point | Score: {validation_result.accuracy_score:.2f} | "
                   f"Reason: {validation_result.rejected_reason} | "
-                  f"Session: {session.id} | Driver: {request.user.username}")
+                  f"Session: {session.id} | Driver: {self.request.user.username}")
         
         # Save with validation metadata
         extra_data = {

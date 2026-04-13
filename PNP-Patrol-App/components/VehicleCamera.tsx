@@ -10,9 +10,8 @@ import {
   ScrollView,
   Image as RNImage,
 } from 'react-native';
-import { Camera, CameraView, useCameraPermissions, CameraType } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface VehicleCameraProps {
   vehicleId: number;
@@ -105,7 +104,7 @@ export const VehicleCamera: React.FC<VehicleCameraProps> = ({
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [showReview, setShowReview] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
-  const cameraRef = useRef<CameraView>(null);
+  const cameraRef = useRef<any>(null);
 
   const currentShot = requiredShots[currentShotIndex];
   const shotGuide = SHOT_GUIDES[currentShot];
@@ -114,6 +113,13 @@ export const VehicleCamera: React.FC<VehicleCameraProps> = ({
     getLocation();
     console.log('📸 Camera permission status:', permission);
   }, [permission]);
+
+  useEffect(() => {
+    if (!permission) return;
+    if (!permission.granted && permission.status === 'undetermined') {
+      requestPermission();
+    }
+  }, [permission, requestPermission]);
 
   const onCameraReady = () => {
     console.log('📸 Camera is ready!');
@@ -257,87 +263,95 @@ export const VehicleCamera: React.FC<VehicleCameraProps> = ({
   );
 
   if (!permission) {
-    return <View />;
+    return (
+      <Modal visible animationType="slide" onRequestClose={onClose}>
+        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+          <ActivityIndicator color="white" />
+          <Text style={{ color: 'white', marginTop: 12 }}>Loading camera…</Text>
+        </View>
+      </Modal>
+    );
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.permissionContainer}>
-        <Text style={styles.permissionText}>Camera permission is required</Text>
-        <TouchableOpacity onPress={requestPermission} style={styles.permissionButton}>
-          <Text style={styles.permissionButtonText}>Grant Permission</Text>
-        </TouchableOpacity>
-      </View>
+      <Modal visible animationType="slide" onRequestClose={onClose}>
+        <View style={styles.permissionContainer}>
+          <Text style={styles.permissionText}>Camera permission is required</Text>
+          <TouchableOpacity onPress={requestPermission} style={styles.permissionButton}>
+            <Text style={styles.permissionButtonText}>Grant Permission</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onClose} style={[styles.permissionButton, { marginTop: 12, backgroundColor: '#666' }]}>
+            <Text style={styles.permissionButtonText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {/* Camera View - Preview may not show in Expo Go */}
-      <CameraView 
-        ref={cameraRef} 
-        style={styles.camera} 
-        facing="back"
-        enableTorch={false}
-        onCameraReady={onCameraReady}
-      />
+    <Modal visible animationType="slide" onRequestClose={onClose}>
+      <View style={styles.container}>
+        <CameraView
+          ref={cameraRef}
+          style={styles.camera}
+          facing="back"
+          enableTorch={false}
+          onCameraReady={onCameraReady}
+        />
 
-      {/* Preview Not Available Message */}
-      <View style={styles.previewWarning}>
-        <Text style={styles.warningText}>📸 Camera Ready</Text>
-        <Text style={styles.warningSubtext}>Preview may not be visible in Expo Go</Text>
-        <Text style={styles.warningSubtext}>Photos will still capture correctly</Text>
-      </View>
+        <View style={styles.previewWarning}>
+          <Text style={styles.warningText}>{cameraReady ? '📸 Camera Ready' : '⏳ Opening camera…'}</Text>
+          <Text style={styles.warningSubtext}>Preview may not be visible in Expo Go</Text>
+          <Text style={styles.warningSubtext}>Photos will still capture correctly</Text>
+        </View>
 
-      {/* Shot Guide Overlay */}
-      <View style={styles.guideOverlay}>
-        <View style={styles.guideCard}>
-          <Text style={styles.guideTitle}>{shotGuide.title}</Text>
-          <Text style={styles.guideDescription}>{shotGuide.description}</Text>
-          <View style={styles.progressIndicator}>
-            <Text style={styles.progressText}>
-              {currentShotIndex + 1} of {requiredShots.length}
-            </Text>
-            <View style={styles.progressBar}>
-              <View 
-                style={[
-                  styles.progressFill, 
-                  { width: `${((currentShotIndex + 1) / requiredShots.length) * 100}%` }
-                ]} 
-              />
+        <View style={styles.guideOverlay}>
+          <View style={styles.guideCard}>
+            <Text style={styles.guideTitle}>{shotGuide.title}</Text>
+            <Text style={styles.guideDescription}>{shotGuide.description}</Text>
+            <View style={styles.progressIndicator}>
+              <Text style={styles.progressText}>
+                {currentShotIndex + 1} of {requiredShots.length}
+              </Text>
+              <View style={styles.progressBar}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: `${((currentShotIndex + 1) / requiredShots.length) * 100}%` },
+                  ]}
+                />
+              </View>
             </View>
           </View>
         </View>
-      </View>
 
-      {/* Controls */}
-      <View style={styles.controls}>
-        <TouchableOpacity onPress={onClose} style={styles.cancelCaptureButton}>
-          <Text style={styles.cancelCaptureButtonText}>Cancel</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={takePicture}
-          disabled={isCapturing}
-          style={[styles.captureButton, isCapturing && styles.captureButtonDisabled]}
-        >
-          {isCapturing ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <View style={styles.captureButtonInner} />
-          )}
-        </TouchableOpacity>
-
-        {capturedPhotos.some(p => p.shotType === currentShot) && (
-          <TouchableOpacity onPress={retakePhoto} style={styles.retakeCaptureButton}>
-            <Text style={styles.retakeCaptureButtonText}>Retake</Text>
+        <View style={styles.controls}>
+          <TouchableOpacity onPress={onClose} style={styles.cancelCaptureButton}>
+            <Text style={styles.cancelCaptureButtonText}>Cancel</Text>
           </TouchableOpacity>
-        )}
-      </View>
 
-      {/* Review Modal */}
-      {renderReviewModal()}
-    </View>
+          <TouchableOpacity
+            onPress={takePicture}
+            disabled={isCapturing || !cameraReady}
+            style={[
+              styles.captureButton,
+              (isCapturing || !cameraReady) && styles.captureButtonDisabled,
+            ]}
+          >
+            {isCapturing ? <ActivityIndicator color="white" /> : <View style={styles.captureButtonInner} />}
+          </TouchableOpacity>
+
+          {capturedPhotos.some(p => p.shotType === currentShot) && (
+            <TouchableOpacity onPress={retakePhoto} style={styles.retakeCaptureButton}>
+              <Text style={styles.retakeCaptureButtonText}>Retake</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {renderReviewModal()}
+      </View>
+    </Modal>
   );
 };
 

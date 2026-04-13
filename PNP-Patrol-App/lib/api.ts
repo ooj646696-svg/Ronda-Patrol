@@ -34,6 +34,19 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+let isRefreshing = false;
+let refreshPromise: Promise<string> | null = null;
+let refreshSubscribers: Array<(token: string) => void> = [];
+
+function subscribeTokenRefresh(cb: (token: string) => void) {
+  refreshSubscribers.push(cb);
+}
+
+function onRefreshed(token: string) {
+  refreshSubscribers.forEach((cb) => cb(token));
+  refreshSubscribers = [];
+}
+
 // Log the API URL for debugging
 console.log('🔗 [API] Base URL:', BASE_URL);
 
@@ -77,23 +90,60 @@ api.interceptors.response.use(
       }
     }
     
-    if (err.response?.status === 401 && !original._retry) {
+    if (!original) return Promise.reject(err);
+
+    const originalUrl = String(original.url || '');
+    const isAuthRequest = originalUrl.includes('/auth/token/');
+
+    if (err.response?.status === 401 && !original._retry && !isAuthRequest) {
       original._retry = true;
       console.log('🔄 [API] Token expired, attempting refresh...');
+
       const refresh = await AsyncStorage.getItem(STORAGE_KEYS.refresh);
-      if (refresh) {
-        try {
-          const { data } = await axios.post(`${BASE_URL}/auth/token/refresh/`, { refresh });
-          console.log('✅ [API] Token refreshed successfully');
-          await AsyncStorage.setItem(STORAGE_KEYS.access, data.access);
-          original.headers.Authorization = `Bearer ${data.access}`;
-          return api(original);
-        } catch {
-          console.error('❌ [API] Token refresh failed, clearing tokens');
-          await AsyncStorage.multiRemove([STORAGE_KEYS.access, STORAGE_KEYS.refresh]);
-        }
+      if (!refresh) {
+        console.error('❌ [API] No refresh token found, clearing tokens');
+        await AsyncStorage.multiRemove([STORAGE_KEYS.access, STORAGE_KEYS.refresh]);
+        return Promise.reject(err);
       }
+
+      if (!isRefreshing) {
+        isRefreshing = true;
+        refreshPromise = axios
+          .post(`${BASE_URL}/auth/token/refresh/`, { refresh })
+          .then(async ({ data }) => {
+            console.log('✅ [API] Token refreshed successfully');
+            await AsyncStorage.setItem(STORAGE_KEYS.access, data.access);
+            onRefreshed(data.access);
+            return data.access as string;
+          })
+          .catch(async (e) => {
+            console.error('❌ [API] Token refresh failed, clearing tokens');
+            await AsyncStorage.multiRemove([STORAGE_KEYS.access, STORAGE_KEYS.refresh]);
+            throw e;
+          })
+          .finally(() => {
+            isRefreshing = false;
+            refreshPromise = null;
+          });
+      }
+
+      return new Promise((resolve, reject) => {
+        subscribeTokenRefresh((token) => {
+          try {
+            original.headers = original.headers || {};
+            original.headers.Authorization = `Bearer ${token}`;
+            resolve(api(original));
+          } catch (e) {
+            reject(e);
+          }
+        });
+
+        if (refreshPromise) {
+          refreshPromise.catch(reject);
+        }
+      });
     }
+
     return Promise.reject(err);
   }
 );
@@ -119,8 +169,16 @@ export const ronda = {
   },
   sessions: {
     list: () => api.get('/sessions/').then((r) => r.data),
-    start: (vehicleId?: number) =>
-      api.post('/sessions/start/', vehicleId != null ? { vehicle_id: vehicleId } : {}).then((r) => r.data),
+    start: (vehicleId?: number, startTimeIso?: string) =>
+      api
+        .post(
+          '/sessions/start/',
+          {
+            ...(vehicleId != null ? { vehicle_id: vehicleId } : {}),
+            ...(startTimeIso ? { start_time: startTimeIso } : {}),
+          }
+        )
+        .then((r) => r.data),
     stop: (id: number) => api.post(`/sessions/${id}/stop/`).then((r) => r.data),
   },
   gpsLogs: {
