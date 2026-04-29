@@ -291,3 +291,109 @@
   font-size: 0.9rem;
   margin-bottom: 1rem;
 }
+
+/* Incidents Card & Widget */
+.incidents-card {
+  cursor: pointer;
+  border-left: 4px solid #c62828;
+  transition: all 0.2s ease;
+}
+
+.incidents-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(198, 40, 40, 0.15);
+}
+
+.incidents-card .card-value {
+  color: #c62828;
+}
+
+.incidents-widget {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid #eee;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.incidents-widget h3 {
+  margin: 0 0 1rem 0;
+  color: #1a1a2e;
+}
+
+.incidents-list-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.incident-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 3px solid #bdbdbd;
+}
+
+.incident-item.emergency {
+  background: #ffebee;
+  border-left-color: #c62828;
+}
+
+.incident-item.assistance {
+  background: #fff3e0;
+  border-left-color: #ef6c00;
+}
+
+.incident-badge-small {
+  font-size: 1rem;
+}
+
+.incident-type-badge {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  font-weight: 700;
+  color: white;
+  background: #757575;
+  letter-spacing: 0.5px;
+}
+
+.incident-type-badge.emergency {
+  background: #c62828;
+}
+
+.incident-type-badge.assistance {
+  background: #ef6c00;
+}
+
+.incident-desc {
+  flex: 1;
+  font-size: 0.9rem;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incident-time-small {
+  font-size: 0.8rem;
+  color: #666;
+  font-family: monospace;
+}
+
+.view-all-link {
+  display: inline-block;
+  margin-top: 1rem;
+  color: #1565c0;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.view-all-link:hover {
+  text-decoration: underline;
+}

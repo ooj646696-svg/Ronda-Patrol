@@ -203,6 +203,11 @@ export const ronda = {
     respond: (pingId: number, response: string, latitude?: number, longitude?: number) =>
       api.post('/ping/respond/', { ping_id: pingId, response, latitude, longitude }).then((r) => r.data),
   },
+  incidents: {
+    list: () => api.get('/incidents/').then((r) => r.data),
+    create: (sessionId: number, description: string, latitude?: number, longitude?: number) =>
+      api.post('/incidents/', { session: sessionId, description, latitude, longitude }).then((r) => r.data),
+  },
   notifications: {
     registerToken: (token: string) =>
       api.post('/notifications/register/', { push_token: token }).then((r) => r.data),

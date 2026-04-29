@@ -1163,7 +1163,7 @@ class GPSLogViewSet(viewsets.ModelViewSet):
 
 # ---------- IncidentReport ----------
 class IncidentReportViewSet(viewsets.ModelViewSet):
-    """Incident reports. Driver can create for own session; admins see branch-scoped."""
+    """Incident reports. Driver can create for own session; drivers see branch incidents; admins see branch-scoped."""
     serializer_class = IncidentReportSerializer
     permission_classes = [IsDriver, BranchScopedPermission]
 
@@ -1174,9 +1174,145 @@ class IncidentReportViewSet(viewsets.ModelViewSet):
             return qs
         if user.role == 'BRANCH_ADMIN' and user.branch_id:
             return qs.filter(session__branch_id=user.branch_id)
-        if user.role == 'DRIVER':
-            return qs.filter(session__driver_id=user.id)
+        if user.role == 'DRIVER' and user.branch_id:
+            # Drivers can see all incidents from their branch (for emergency response)
+            return qs.filter(session__branch_id=user.branch_id)
         return qs.none()
+
+    @action(detail=True, methods=['post'], permission_classes=[IsSuperAdmin | IsBranchAdmin])
+    def resolve(self, request, pk=None):
+        """Resolve an incident (Admin only)."""
+        try:
+            incident = self.get_object()
+            
+            # Check branch permission for Branch Admin
+            if request.user.role == 'BRANCH_ADMIN':
+                if incident.session.branch_id != request.user.branch_id:
+                    return Response(
+                        {'detail': 'You can only resolve incidents from your branch.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            
+            if incident.is_resolved:
+                return Response(
+                    {'detail': 'This incident is already resolved.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            incident.is_resolved = True
+            incident.resolved_at = timezone.now()
+            incident.resolved_by = request.user
+            incident.save()
+            
+            return Response({
+                'message': 'Incident resolved successfully',
+                'incident': IncidentReportSerializer(incident).data
+            })
+            
+        except Exception as e:
+            return Response(
+                {'detail': f'Failed to resolve incident: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['get'], permission_classes=[IsSuperAdmin | IsBranchAdmin | IsDriver])
+    def route(self, request, pk=None):
+        """Get route from branch to incident location using OpenRouteService."""
+        try:
+            incident = self.get_object()
+            
+            # Check branch permission for Branch Admin and Driver
+            if request.user.role in ['BRANCH_ADMIN', 'DRIVER']:
+                if incident.session.branch_id != request.user.branch_id:
+                    return Response(
+                        {'detail': 'You can only view routes for incidents from your branch.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            
+            # Get branch coordinates
+            branch = incident.session.branch
+            if not branch.latitude or not branch.longitude:
+                return Response(
+                    {'detail': 'Branch does not have coordinates set.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not incident.latitude or not incident.longitude:
+                return Response(
+                    {'detail': 'Incident does not have coordinates.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get ORS API key
+            ors_key = getattr(settings, 'ORS_API_KEY', None)
+            if not ors_key:
+                return Response(
+                    {'detail': 'ORS_API_KEY is not configured.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Build coordinates: [branch_lon, branch_lat, incident_lon, incident_lat]
+            start_coords = [float(branch.longitude), float(branch.latitude)]
+            end_coords = [float(incident.longitude), float(incident.latitude)]
+            
+            # Call ORS directions API
+            import requests
+            directions_url = f"https://api.openrouteservice.org/v2/directions/driving-car"
+            headers = {
+                'Authorization': ors_key,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            }
+            payload = {
+                'coordinates': [start_coords, end_coords]
+            }
+            
+            try:
+                response = requests.post(directions_url, json=payload, headers=headers, timeout=20)
+                if response.status_code >= 400:
+                    return Response(
+                        {'detail': f'ORS API error: {response.status_code}', 'error': response.text},
+                        status=status.HTTP_502_BAD_GATEWAY
+                    )
+                
+                data = response.json()
+                features = data.get('features') or []
+                if not features:
+                    return Response(
+                        {'detail': 'No route found between branch and incident.'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+                
+                geometry = features[0].get('geometry')
+                properties = features[0].get('properties', {})
+                
+                return Response({
+                    'geometry': geometry,
+                    'distance': properties.get('summary', {}).get('distance'),
+                    'duration': properties.get('summary', {}).get('duration'),
+                    'branch': {
+                        'name': branch.name,
+                        'latitude': float(branch.latitude),
+                        'longitude': float(branch.longitude)
+                    },
+                    'incident': {
+                        'id': incident.id,
+                        'latitude': float(incident.latitude),
+                        'longitude': float(incident.longitude)
+                    }
+                })
+                
+            except requests.RequestException as e:
+                return Response(
+                    {'detail': f'Failed to contact ORS: {str(e)}'},
+                    status=status.HTTP_502_BAD_GATEWAY
+                )
+                
+        except Exception as e:
+            return Response(
+                {'detail': f'Failed to get route: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 # ---------- Ping ----------

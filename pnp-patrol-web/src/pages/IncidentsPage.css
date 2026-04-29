@@ -1,0 +1,269 @@
+.incidents-page {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.incidents-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.incidents-header h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  color: #1a1a2e;
+}
+
+.incidents-stats {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.stat-badge {
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.stat-badge.emergency {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.stat-badge.assistance {
+  background: #fff3e0;
+  color: #ef6c00;
+}
+
+.stat-badge.total {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.incidents-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.filter-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.filter-buttons button {
+  padding: 0.5rem 1rem;
+  border: 2px solid #e0e0e0;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.filter-buttons button:hover {
+  border-color: #bdbdbd;
+}
+
+.filter-buttons button.active {
+  background: #1a1a2e;
+  color: white;
+  border-color: #1a1a2e;
+}
+
+.filter-buttons button.emergency {
+  border-color: #ffcdd2;
+}
+
+.filter-buttons button.emergency:hover,
+.filter-buttons button.emergency.active {
+  background: #c62828;
+  border-color: #c62828;
+  color: white;
+}
+
+.filter-buttons button.assistance {
+  border-color: #ffe0b2;
+}
+
+.filter-buttons button.assistance:hover,
+.filter-buttons button.assistance.active {
+  background: #ef6c00;
+  border-color: #ef6c00;
+  color: white;
+}
+
+.refresh-btn {
+  padding: 0.5rem 1rem;
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.2s;
+}
+
+.refresh-btn:hover {
+  background: #e0e0e0;
+}
+
+.incidents-loading,
+.incidents-error,
+.no-incidents {
+  text-align: center;
+  padding: 3rem;
+  color: #666;
+}
+
+.incidents-error {
+  color: #c62828;
+  background: #ffebee;
+  border-radius: 8px;
+}
+
+.incidents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.incident-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-left: 4px solid #bdbdbd;
+}
+
+.incident-card.emergency {
+  border-left-color: #c62828;
+  background: linear-gradient(to right, #ffebee 0%, white 100%);
+}
+
+.incident-card.assistance {
+  border-left-color: #ef6c00;
+  background: linear-gradient(to right, #fff3e0 0%, white 100%);
+}
+
+.incident-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.incident-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.incident-badge.emergency {
+  background: #c62828;
+  color: white;
+}
+
+.incident-badge.assistance {
+  background: #ef6c00;
+  color: white;
+}
+
+.incident-badge.incident {
+  background: #757575;
+  color: white;
+}
+
+.incident-time {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.incident-description {
+  font-size: 1rem;
+  color: #333;
+  margin: 0 0 1rem 0;
+  line-height: 1.5;
+}
+
+.incident-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.detail-item .label {
+  font-size: 0.875rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.detail-item .value {
+  font-size: 0.875rem;
+  color: #333;
+}
+
+.detail-item .value.coords {
+  font-family: monospace;
+  background: #f5f5f5;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.map-link {
+  font-size: 0.875rem;
+  color: #1565c0;
+  text-decoration: none;
+  margin-left: 0.5rem;
+}
+
+.map-link:hover {
+  text-decoration: underline;
+}
+
+.incident-image {
+  margin-top: 1rem;
+}
+
+.incident-image img {
+  max-width: 300px;
+  max-height: 200px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+@media (max-width: 768px) {
+  .incidents-page {
+    padding: 1rem;
+  }
+
+  .incidents-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .filter-buttons {
+    flex-wrap: wrap;
+  }
+}

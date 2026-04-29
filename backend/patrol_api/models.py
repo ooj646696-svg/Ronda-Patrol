@@ -179,6 +179,16 @@ class IncidentReport(models.Model):
     latitude = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
     longitude = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    is_resolved = models.BooleanField(default=False, help_text='Whether this incident has been resolved')
+    resolved_at = models.DateTimeField(null=True, blank=True, help_text='When the incident was resolved')
+    resolved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='resolved_incidents',
+        help_text='Admin who resolved this incident'
+    )
 
     class Meta:
         ordering = ['-created_at']

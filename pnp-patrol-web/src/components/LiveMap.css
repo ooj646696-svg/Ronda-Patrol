@@ -137,6 +137,32 @@
   display: block;
 }
 
+.custom-driver-marker.emergency {
+  animation: marker-emergency-pulse 1.5s infinite;
+}
+
+.custom-driver-marker.assistance {
+  animation: marker-assistance-pulse 2s infinite;
+}
+
+@keyframes marker-emergency-pulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 0 rgba(198, 40, 40, 0.8));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(198, 40, 40, 1));
+  }
+}
+
+@keyframes marker-assistance-pulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 0 rgba(239, 108, 0, 0.6));
+  }
+  50% {
+    filter: drop-shadow(0 0 8px rgba(239, 108, 0, 0.9));
+  }
+}
+
 /* Live Map Container with Sidebar */
 .live-map-container {
   display: flex;
@@ -232,6 +258,32 @@
   font-weight: 700;
   border: 3px solid;
   flex-shrink: 0;
+}
+
+.driver-color.emergency {
+  animation: driver-color-pulse 1.5s infinite;
+}
+
+.driver-color.assistance {
+  animation: driver-color-pulse-slow 2s infinite;
+}
+
+@keyframes driver-color-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(198, 40, 40, 0.2);
+  }
+}
+
+@keyframes driver-color-pulse-slow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 108, 0, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(239, 108, 0, 0.15);
+  }
 }
 
 .driver-info {
@@ -384,4 +436,339 @@
 .trail-toggle.active:hover {
   background: #0056b3;
   border-color: #0056b3;
+}
+
+/* Incidents Toggle Button Styles */
+.incidents-toggle {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #fff;
+  color: #666;
+}
+
+.incidents-toggle:hover {
+  border-color: #c62828;
+  background: #ffebee;
+}
+
+.incidents-toggle.active {
+  background: #c62828;
+  color: white;
+  border-color: #c62828;
+}
+
+.incidents-toggle.active:hover {
+  background: #8e0000;
+  border-color: #8e0000;
+}
+
+/* Incident Marker Popup */
+.incident-popup {
+  min-width: 220px;
+}
+
+.incident-popup .emergency-text {
+  color: #c62828;
+  font-size: 1rem;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.incident-popup .assistance-text {
+  color: #ef6c00;
+  font-size: 1rem;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.incident-popup .popup-info {
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.incident-popup .map-link {
+  color: #1565c0;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.incident-popup .map-link:hover {
+  text-decoration: underline;
+}
+
+/* Incident Action Button */
+.incident-action {
+  margin-top: 0.5rem;
+}
+
+.incident-action hr {
+  margin: 0.5rem 0;
+  border: none;
+  border-top: 1px solid #ddd;
+}
+
+.resolve-btn {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.resolve-btn:hover {
+  background: #218838;
+}
+
+.route-btn {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  background: #2196f3;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 0.5rem;
+}
+
+.route-btn:hover {
+  background: #1976d2;
+}
+
+/* Incident Marker Animation */
+@keyframes incident-pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.incident-marker {
+  animation: incident-pulse 2s infinite;
+}
+
+/* Emergency and Assistance Banners in Driver Popup */
+.emergency-banner,
+.assistance-banner {
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  text-align: center;
+  animation: emergency-flash 2s infinite;
+}
+
+.emergency-banner {
+  background: #c62828;
+  color: white;
+  border: 2px solid #8e0000;
+}
+
+.assistance-banner {
+  background: #ef6c00;
+  color: white;
+  border: 2px solid #b35900;
+}
+
+.emergency-banner strong,
+.assistance-banner strong {
+  display: block;
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.emergency-banner span,
+.assistance-banner span {
+  font-size: 0.85rem;
+  opacity: 0.95;
+}
+
+@keyframes emergency-flash {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+/* Driver Card Emergency/Assistance Styles */
+.driver-card.emergency {
+  border: 2px solid #c62828;
+  background: #ffebee;
+  animation: driver-emergency-pulse 2s infinite;
+}
+
+.driver-card.assistance {
+  border: 2px solid #ef6c00;
+  background: #fff3e0;
+}
+
+@keyframes driver-emergency-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(198, 40, 40, 0.1);
+  }
+}
+
+.driver-card-alert {
+  padding: 0.5rem;
+  border-radius: 4px;
+  margin: -0.5rem -0.5rem 0.5rem -0.5rem;
+  text-align: center;
+}
+
+.driver-card-alert strong {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-bottom: 0.15rem;
+}
+
+.driver-card-alert span {
+  font-size: 0.7rem;
+  display: block;
+}
+
+.driver-card-alert.emergency {
+  background: #c62828;
+  color: white;
+}
+
+.driver-card-alert.assistance {
+  background: #ef6c00;
+  color: white;
+}
+
+/* Emergency/Assistance Ping Button Styles */
+.ping-btn-small.emergency {
+  background: #c62828;
+  animation: btn-emergency-pulse 1.5s infinite;
+}
+
+.ping-btn-small.emergency:hover {
+  background: #8e0000;
+}
+
+.ping-btn-small.assistance {
+  background: #ef6c00;
+}
+
+.ping-btn-small.assistance:hover {
+  background: #b35900;
+}
+
+@keyframes btn-emergency-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* Sidebar Incidents Section */
+.sidebar-incidents {
+  background: #fff8f8;
+  border-bottom: 1px solid #ffcdd2;
+  padding: 0.75rem;
+}
+
+.sidebar-incidents-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.sidebar-incidents-header h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.incident-count {
+  background: #c62828;
+  color: white;
+  padding: 0.15rem 0.4rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.incidents-list-small {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sidebar-incident-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: white;
+  border-radius: 6px;
+  border-left: 3px solid #bdbdbd;
+  font-size: 0.8rem;
+}
+
+.sidebar-incident-item.emergency {
+  border-left-color: #c62828;
+  background: #ffebee;
+}
+
+.sidebar-incident-item.assistance {
+  border-left-color: #ef6c00;
+  background: #fff3e0;
+}
+
+.incident-type-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  background: #666;
+  color: white;
+  flex-shrink: 0;
+}
+
+.sidebar-incident-item.emergency .incident-type-tag {
+  background: #c62828;
+}
+
+.sidebar-incident-item.assistance .incident-type-tag {
+  background: #ef6c00;
+}
+
+.incident-desc-small {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #333;
+}
+
+.incident-time {
+  font-size: 0.7rem;
+  color: #666;
+  flex-shrink: 0;
 }

@@ -45,7 +45,17 @@ export const gpsLogs = {
 
 export const ping = {
   send: (driverId) => api.post('/ping/send/', { driver_id: driverId }).then((r) => r.data),
-  respond: (pingId, response, latitude, longitude) => 
+  respond: (pingId, response, latitude, longitude) =>
     api.post('/ping/respond/', { ping_id: pingId, response, latitude, longitude }).then((r) => r.data),
   active: () => api.get('/ping/active/').then((r) => r.data),
+};
+
+export const incidents = {
+  list: (params) => api.get('/incidents/', { params }).then((r) => r.data),
+  get: (id) => api.get(`/incidents/${id}/`).then((r) => r.data),
+  create: (payload) => api.post('/incidents/', payload).then((r) => r.data),
+  update: (id, payload) => api.patch(`/incidents/${id}/`, payload).then((r) => r.data),
+  remove: (id) => api.delete(`/incidents/${id}/`).then((r) => r.data),
+  resolve: (id) => api.post(`/incidents/${id}/resolve/`).then((r) => r.data),
+  route: (id) => api.get(`/incidents/${id}/route/`).then((r) => r.data),
 };

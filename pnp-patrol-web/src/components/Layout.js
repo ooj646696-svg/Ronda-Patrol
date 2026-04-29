@@ -30,6 +30,7 @@ export function Layout({ children }) {
       <nav className="layout-nav">
         <Link to="/" className={`layout-nav-link ${location.pathname === '/' ? 'active' : ''}`}>Dashboard</Link>
         <Link to="/map" className={`layout-nav-link ${location.pathname === '/map' ? 'active' : ''}`}>Live Map</Link>
+        <Link to="/incidents" className={`layout-nav-link ${location.pathname === '/incidents' ? 'active' : ''}`}>Incidents</Link>
         <Link to="/sessions" className={`layout-nav-link ${location.pathname === '/sessions' ? 'active' : ''}`}>Session Logs</Link>
         <Link to="/route-history" className={`layout-nav-link ${location.pathname === '/route-history' ? 'active' : ''}`}>Route History</Link>
         <Link to="/snapshots" className={`layout-nav-link ${location.pathname === '/snapshots' ? 'active' : ''}`}>Snapshots</Link>

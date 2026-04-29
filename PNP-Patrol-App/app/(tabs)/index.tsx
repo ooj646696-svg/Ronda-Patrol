@@ -10,6 +10,7 @@ import {
   AppState,
   AppStateStatus,
   Modal,
+  Linking,
 } from 'react-native';
 import * as Location from 'expo-location';
 import { startOfflineSession } from '@/lib/offlineSession';
@@ -91,6 +92,16 @@ type Ping = {
   response?: string;
 };
 
+type Incident = {
+  id: number;
+  session: number;
+  description: string;
+  latitude?: number;
+  longitude?: number;
+  created_at: string;
+  is_resolved: boolean;
+};
+
 export default function HomeScreen() {
   const { user, logout } = useAuth();
   const { isInitialized, isInitializing, error: dbError } = useDatabase();
@@ -115,6 +126,7 @@ export default function HomeScreen() {
   const [lastValidationMessage, setLastValidationMessage] = useState<string | null>(null);
   const [activePing, setActivePing] = useState<Ping | null>(null);
   const [pingModalVisible, setPingModalVisible] = useState(false);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -129,6 +141,22 @@ export default function HomeScreen() {
       setError(String(msg));
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const fetchIncidents = useCallback(async () => {
+    try {
+      const data = await ronda.incidents.list();
+      const list = Array.isArray(data) ? data : data.results || [];
+      // Filter to show only unresolved incidents from today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const activeIncidents = list.filter((inc: Incident) => 
+        !inc.is_resolved && new Date(inc.created_at) >= today
+      );
+      setIncidents(activeIncidents);
+    } catch (e: unknown) {
+      console.error('❌ Failed to load incidents:', e);
     }
   }, []);
 
@@ -162,6 +190,13 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchSessions();
   }, [fetchSessions]);
+
+  useEffect(() => {
+    fetchIncidents();
+    // Poll for incidents every 30 seconds
+    const interval = setInterval(fetchIncidents, 30000);
+    return () => clearInterval(interval);
+  }, [fetchIncidents]);
 
   const fetchVehicles = useCallback(async () => {
     try {
@@ -503,29 +538,19 @@ export default function HomeScreen() {
   }, [user?.id]);
 
   useEffect(() => {
+    if (!user?.id) return; // Wait for user to be available
+    
+    console.log('🔔 Starting ping polling for user:', user.id);
+    
     // Start ping polling when component mounts
     checkForPings(); // Check immediately
-    pingIntervalRef.current = setInterval(checkForPings, 10000); // Check every 10 seconds
+    pingIntervalRef.current = setInterval(checkForPings, 5000); // Check every 5 seconds for faster response
     
-    // Initialize push notification listener
+    // Initialize push notification listener (won't work in Expo Go but set up anyway)
     const cleanupNotificationListener = setupNotificationListener();
     
-    // Test push notification setup
-    setTimeout(() => {
-      console.log('🔔 Testing push notification setup...');
-      if (typeof (global as any).emitPingNotification === 'function') {
-        console.log('✅ Push notification handler is ready');
-        // Simulate a test ping notification
-        (global as any).emitPingNotification({
-          id: 999,
-          sender: 'Test System',
-          status: 'SENT',
-          sent_at: new Date().toISOString()
-        });
-      } else {
-        console.log('❌ Push notification handler not ready');
-      }
-    }, 2000); // Test after 2 seconds
+    // Test ping polling in Expo Go
+    console.log('📱 Expo Go mode: Polling for pings every 5 seconds');
     
     return () => {
       if (pingIntervalRef.current) {
@@ -534,7 +559,7 @@ export default function HomeScreen() {
       }
       cleanupNotificationListener();
     };
-  }, [checkForPings]);
+  }, [checkForPings, user?.id]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
@@ -792,6 +817,18 @@ export default function HomeScreen() {
     }
   };
 
+  const handleNavigateToIncident = (incident: Incident) => {
+    if (incident.latitude && incident.longitude) {
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${incident.latitude},${incident.longitude}`;
+      Linking.openURL(url).catch((err) => {
+        console.error('Failed to open navigation:', err);
+        Alert.alert('Error', 'Could not open navigation app');
+      });
+    } else {
+      Alert.alert('No Location', 'This incident does not have location data');
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -865,12 +902,43 @@ export default function HomeScreen() {
 
       {/* Pending Ping Banner */}
       {activePing && !pingModalVisible && (
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.pendingPingBanner}
           onPress={handleOpenPendingPing}
         >
           <Text style={styles.pendingPingText}>📢 Pending ping from {activePing.sender?.username || 'Admin'} - Tap to respond</Text>
         </TouchableOpacity>
+      )}
+
+      {/* Active Incidents Banner */}
+      {incidents.length > 0 && (
+        <View style={styles.incidentsBanner}>
+          <Text style={styles.incidentsBannerTitle}>🚨 Active Alerts ({incidents.length})</Text>
+          {incidents.slice(0, 3).map((incident) => {
+            const isEmergency = incident.description?.includes('[EMERGENCY]');
+            const cleanDesc = incident.description
+              ?.replace(/\[EMERGENCY\]|\[ASSISTANCE\]/, '')
+              .trim()
+              .substring(0, 50) + '...';
+            return (
+              <View key={incident.id} style={styles.incidentItem}>
+                <Text style={[styles.incidentTypeTag, isEmergency ? styles.emergencyTag : styles.assistanceTag]}>
+                  {isEmergency ? 'EMRG' : 'ASST'}
+                </Text>
+                <Text style={styles.incidentDesc}>{cleanDesc}</Text>
+                <Text style={styles.incidentTime}>{new Date(incident.created_at).toLocaleTimeString()}</Text>
+                {incident.latitude && incident.longitude && (
+                  <TouchableOpacity
+                    style={styles.navigateButton}
+                    onPress={() => handleNavigateToIncident(incident)}
+                  >
+                    <Text style={styles.navigateButtonText}>🧭</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
+        </View>
       )}
 
       {!session?.is_active && vehicles.length > 0 && (
@@ -1159,17 +1227,73 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontSize: 17, fontWeight: '600' },
 
   pendingPingBanner: {
-    backgroundColor: '#ff9800',
+    backgroundColor: '#ff6f00',
     borderRadius: 8,
     padding: 12,
     marginBottom: 16,
-    borderWidth: 2,
-    borderColor: '#f57c00',
   },
   pendingPingText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+
+  incidentsBanner: {
+    backgroundColor: '#1a3452',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#c62828',
+  },
+  incidentsBannerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  incidentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  incidentTypeTag: {
+    fontSize: 10,
+    fontWeight: '700',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginRight: 8,
+    minWidth: 40,
     textAlign: 'center',
+  },
+  emergencyTag: {
+    backgroundColor: '#c62828',
+    color: '#fff',
+  },
+  assistanceTag: {
+    backgroundColor: '#ef6c00',
+    color: '#fff',
+  },
+  incidentDesc: {
+    flex: 1,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  incidentTime: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.6)',
+    marginLeft: 8,
+  },
+  navigateButton: {
+    padding: 6,
+    marginLeft: 8,
+    backgroundColor: '#2e7d32',
+    borderRadius: 6,
+  },
+  navigateButtonText: {
+    fontSize: 16,
   },
 });

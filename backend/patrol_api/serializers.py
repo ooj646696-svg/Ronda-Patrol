@@ -264,11 +264,12 @@ class GPSLogSerializer(serializers.ModelSerializer):
 
 class IncidentReportSerializer(serializers.ModelSerializer):
     """Incident report create/read."""
+    resolved_by_username = serializers.ReadOnlyField(source='resolved_by.username')
 
     class Meta:
         model = IncidentReport
-        fields = ['id', 'session', 'description', 'image', 'latitude', 'longitude', 'created_at']
-        read_only_fields = ['created_at']
+        fields = ['id', 'session', 'description', 'image', 'latitude', 'longitude', 'created_at', 'is_resolved', 'resolved_at', 'resolved_by', 'resolved_by_username']
+        read_only_fields = ['created_at', 'resolved_at', 'resolved_by']
 
 
 # Minimal serializers for write-only or list endpoints

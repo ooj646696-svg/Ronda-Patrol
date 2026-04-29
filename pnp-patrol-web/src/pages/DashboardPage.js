@@ -10,6 +10,8 @@ export function DashboardPage() {
   const { user } = useAuth();
   const [live, setLive] = useState([]);
   const [sessionsCount, setSessionsCount] = useState({ active: 0, total: 0 });
+  const [incidents, setIncidents] = useState([]);
+  const [incidentsLoading, setIncidentsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pinging, setPinging] = useState({});
@@ -82,6 +84,22 @@ export function DashboardPage() {
       }
     }
     fetchData();
+
+    // Fetch recent incidents
+    async function fetchIncidents() {
+      try {
+        const data = await ronda.incidents.list();
+        const incidentsList = Array.isArray(data) ? data : (data.results || []);
+        // Get only the 5 most recent incidents
+        incidentsList.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        if (!cancelled) setIncidents(incidentsList.slice(0, 5));
+      } catch (e) {
+        console.error('Failed to fetch incidents:', e);
+      } finally {
+        if (!cancelled) setIncidentsLoading(false);
+      }
+    }
+    fetchIncidents();
     
     // Refresh live data every 10 seconds to see ping responses
     const interval = setInterval(refreshLiveData, 10000);
@@ -97,9 +115,9 @@ export function DashboardPage() {
     
     if (ping.status === 'RESPONDED') {
       const responseText = {
-        'YES': '✅ Driver is fine',
-        'NO': '❌ Driver needs assistance',
-        'NEED_ASSISTANCE': '🚨 Emergency help needed'
+        'YES': 'Driver is fine',
+        'NO': 'Driver needs assistance',
+        'NEED_ASSISTANCE': 'Emergency help needed'
       }[ping.response] || `Responded: ${ping.response}`;
       
       return (
@@ -149,7 +167,39 @@ export function DashboardPage() {
           <span className="card-value">{sessionsCount.total}</span>
           <span className="card-label">Total sessions</span>
         </div>
+        <div className="card incidents-card" onClick={() => window.location.href = '/incidents'}>
+          <span className="card-value">{incidents.filter(i => i.description?.includes('[EMERGENCY]')).length}</span>
+          <span className="card-label">Emergency Alerts</span>
+        </div>
       </div>
+
+      {/* Recent Incidents Widget */}
+      {!incidentsLoading && incidents.length > 0 && (
+        <div className="dashboard-section incidents-widget">
+          <h3>Recent Incidents</h3>
+          <div className="incidents-list-compact">
+            {incidents.map(incident => {
+              const isEmergency = incident.description?.includes('[EMERGENCY]');
+              const isAssistance = incident.description?.includes('[ASSISTANCE]');
+              const cleanDesc = incident.description?.replace(/\[EMERGENCY\]|\[ASSISTANCE\]/, '').trim();
+
+              return (
+                <div key={incident.id} className={`incident-item ${isEmergency ? 'emergency' : isAssistance ? 'assistance' : ''}`}>
+                  <span className={`incident-type-badge ${isEmergency ? 'emergency' : isAssistance ? 'assistance' : ''}`}>
+                    {isEmergency ? 'EMERGENCY' : isAssistance ? 'ASSISTANCE' : 'INCIDENT'}
+                  </span>
+                  <span className="incident-desc">{cleanDesc}</span>
+                  <span className="incident-time-small">
+                    {new Date(incident.created_at).toLocaleTimeString()}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <a href="/incidents" className="view-all-link">View all incidents</a>
+        </div>
+      )}
+
       <div className="dashboard-section">
         <h3>Live Driver Locations</h3>
         <p className="section-hint">Click on a driver to view details and send pings</p>

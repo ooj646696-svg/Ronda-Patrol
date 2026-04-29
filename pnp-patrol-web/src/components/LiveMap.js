@@ -1,16 +1,82 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Popup, Polygon, GeoJSON, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import * as ronda from '../api/ronda';
 import { useAuth } from '../contexts/AuthContext';
-import VideoCallButton from './VideoCallButton';
 import 'leaflet/dist/leaflet.css';
 import './LiveMap.css';
 
-const DEFAULT_CENTER = [14.7269, 121.8656]; // Quezon Province center
-const DEFAULT_ZOOM = 9;
+const DEFAULT_CENTER = [12.95, 121.1]; // San Francisco/Mulanay area - southern Quezon
+const DEFAULT_ZOOM = 10;
+const MIN_ZOOM = 9; // Don't zoom out too far
+const MAX_ZOOM = 18; // Allow close zoom for detail
 const REFRESH_MS = 5000; // Base interval (will be adapted)
 const SMART_POLL_INTERVAL = 15000; // 15 seconds when no active drivers
+
+// Map bounds - restrict to Philippines (roughly)
+// [south, west], [north, east]
+const PHILIPPINES_BOUNDS = [
+  [4.5, 116.0],   // Southwest corner
+  [21.5, 127.0]   // Northeast corner
+];
+
+// Expanded bounds to fully show Bondoc Peninsula including San Francisco
+const QUEZON_BOUNDS = [
+  [13.1, 120.8],  // Southwest - further south to show all of Bondoc Peninsula
+  [15.0, 123.0]   // Northeast
+];
+
+// Quezon Province polygon boundary - accurate coordinates covering all cities and municipalities
+// Northern boundary (Aurora/Baler border): General Nakar, Infanta, Real
+// Eastern boundary (Pacific coast): Polillo Islands, Jomalig, Patnanungan, Panukulan
+// Southern boundary (Bondoc Peninsula): San Francisco, San Andres, Mulanay, San Narciso
+// Western boundary (Laguna/Batangas): Mauban, Sampaloc, Lucban, Tayabas, Sariaya, Candelaria, Tiaong
+const QUEZON_POLYGON = [
+  // Northern boundary - Aurora border (General Nakar, Real, Infanta)
+  [15.33, 121.58],  // Northwest - near Real/Aurora border
+  [15.32, 121.70],  // North - Real area
+  [15.30, 121.85],  // North - Infanta area
+  [15.28, 122.00],  // Northeast - General Nakar
+  
+  // Eastern coast - Pacific Ocean
+  [15.25, 122.15],  // Dinahican area
+  [15.20, 122.25],  // East coast
+  [15.10, 122.35],  // Polillo area (Polillo Island)
+  [15.00, 122.40],  // Jomalig Island area
+  [14.85, 122.45],  // Patnanungan/Panukulan area
+  [14.70, 122.42],  // Burdeos area
+  [14.55, 122.38],  // East coast - Calauag area
+  
+  // Southern boundary - Bondoc Peninsula
+  [14.40, 122.35],  // San Andres area
+  [14.25, 122.30],  // San Francisco area
+  [14.15, 122.20],  // Mulanay area
+  [14.05, 122.10],  // San Narciso area
+  [13.95, 122.00],  // South tip - Bondoc Peninsula
+  [13.90, 121.90],  // Southwest - near Lopez
+  [13.88, 121.80],  // Unisan/Padre Burgos area
+  [13.85, 121.70],  // Gumaca/Guinayangan area
+  
+  // Western boundary - Laguna/Batangas border
+  [13.82, 121.58],  // Pagbilao area
+  [13.80, 121.50],  // Lucena City
+  [13.78, 121.40],  // Tayabas City
+  [13.76, 121.28],  // Sampaloc/Lucban area
+  [13.75, 121.18],  // Mauban area
+  [13.76, 121.10],  // Sariaya area
+  [13.80, 121.00],  // Candelaria area
+  [13.85, 120.90],  // San Antonio area
+  [13.92, 120.85],  // Tiaong area
+  [14.05, 120.88],  // Dolores area
+  [14.20, 120.95],  // Liliw border area
+  [14.35, 121.05],  // Nagcarlan border area
+  [14.50, 121.18],  // Luisiana border area
+  [14.65, 121.32],  // Majayjay border area
+  [14.80, 121.45],  // West central
+  [14.95, 121.52],  // West near Infanta
+  [15.15, 121.55],  // Northwest return
+  [15.33, 121.58],  // Close polygon
+];
 
 // Color palette for drivers - distinct colors for easy identification
 const DRIVER_COLORS = [
@@ -26,15 +92,15 @@ const DRIVER_COLORS = [
   { bg: '#fdd835', border: '#f9a825', text: '#333' }, // Yellow
 ];
 
-// Vehicle type detection and icons
+// Vehicle type detection - returns text label
 function getVehicleIcon(vehiclePlate) {
   const plate = vehiclePlate?.toLowerCase() || '';
-  if (plate.includes('ambulance') || plate.includes('rescue')) return '🚑';
-  if (plate.includes('police') || plate.includes('patrol') || plate.includes('pnp')) return '🚓';
-  if (plate.includes('motor') || plate.includes('bike')) return '🏍️';
-  if (plate.includes('truck') || plate.includes('lorry')) return '🚛';
-  if (plate.includes('bus') || plate.includes('van')) return '🚌';
-  return '🚗'; // Default car
+  if (plate.includes('ambulance') || plate.includes('rescue')) return '[Ambulance]';
+  if (plate.includes('police') || plate.includes('patrol') || plate.includes('pnp')) return '[Patrol]';
+  if (plate.includes('motor') || plate.includes('bike')) return '[Motorcycle]';
+  if (plate.includes('truck') || plate.includes('lorry')) return '[Truck]';
+  if (plate.includes('bus') || plate.includes('van')) return '[Van]';
+  return '[Vehicle]'; // Default
 }
 
 // Get driver initials (up to 2 characters)
@@ -58,23 +124,55 @@ function getDriverColorIndex(driverName) {
 }
 
 // Create custom marker icon with driver initials
-function createDriverIcon(driverName, vehiclePlate) {
+function createDriverIcon(driverName, vehiclePlate, hasEmergency, hasAssistance) {
   const colorIndex = getDriverColorIndex(driverName);
   const colors = DRIVER_COLORS[colorIndex];
   const initials = getDriverInitials(driverName);
-  const vehicleEmoji = getVehicleIcon(vehiclePlate);
-  
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48"><text x="20" y="14" text-anchor="middle" font-size="16">${vehicleEmoji}</text><circle cx="20" cy="32" r="14" fill="${colors.bg}" stroke="${colors.border}" stroke-width="3"/><text x="20" y="37" text-anchor="middle" fill="white" font-size="11" font-weight="bold" font-family="Arial, sans-serif">${initials}</text></svg>`;
-  
+
+  // Use emergency/assistance colors if active
+  const bgColor = hasEmergency ? '#c62828' : hasAssistance ? '#ef6c00' : colors.bg;
+  const borderColor = hasEmergency ? '#8e0000' : hasAssistance ? '#b35900' : colors.border;
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48"><circle cx="20" cy="24" r="18" fill="${bgColor}" stroke="${borderColor}" stroke-width="3"/><text x="20" y="28" text-anchor="middle" fill="white" font-size="12" font-weight="bold" font-family="Arial, sans-serif">${initials}</text></svg>`;
+
   const svgUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
-  
+
   return L.icon({
     iconUrl: svgUrl,
     iconSize: [40, 48],
     iconAnchor: [20, 48],
     popupAnchor: [0, -48],
-    className: 'custom-driver-marker',
+    className: `custom-driver-marker ${hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`,
   });
+}
+
+// Create incident marker icon (emergency or assistance)
+function createIncidentIcon(isEmergency) {
+  const color = isEmergency ? '#c62828' : '#ef6c00';
+  const strokeColor = isEmergency ? '#8e0000' : '#b35900';
+  const label = isEmergency ? 'EMRG' : 'ASST';
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+    <path d="M18 0 L36 18 L18 44 L0 18 Z" fill="${color}" stroke="${strokeColor}" stroke-width="2"/>
+    <text x="18" y="26" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="Arial, sans-serif">${label}</text>
+  </svg>`;
+
+  const svgUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+
+  return L.icon({
+    iconUrl: svgUrl,
+    iconSize: [36, 44],
+    iconAnchor: [18, 40],
+    popupAnchor: [0, -40],
+    className: 'incident-marker',
+  });
+}
+
+// Get incident type from description
+function getIncidentType(description) {
+  if (description?.includes('[EMERGENCY]')) return 'emergency';
+  if (description?.includes('[ASSISTANCE]')) return 'assistance';
+  return 'incident';
 }
 
 // Calculate circular offset for overlapping markers
@@ -132,6 +230,23 @@ function FixLeafletIcons() {
       shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
     });
   }, []);
+  return null;
+}
+
+// Component to set map bounds and limits
+function MapBounds() {
+  const map = useMap();
+
+  useEffect(() => {
+    // Set max bounds to Quezon area (stricter)
+    map.setMaxBounds(QUEZON_BOUNDS);
+    // Set min/max zoom levels
+    map.setMinZoom(MIN_ZOOM);
+    map.setMaxZoom(MAX_ZOOM);
+    // Fit bounds on initial load
+    map.fitBounds(QUEZON_BOUNDS, { padding: [20, 20] });
+  }, [map]);
+
   return null;
 }
 
@@ -284,7 +399,115 @@ function PersistentTrail({ sessionId, recentPoints, showTrails }) {
   );
 }
 
-function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showTrails }) {
+// Incident Markers Component
+function IncidentMarkers({ incidents, showIncidents, onResolve, onShowRoute, onHideRoute, userRole, incidentRoutes }) {
+  if (!showIncidents || !incidents || incidents.length === 0) return null;
+
+  const isAdmin = userRole === 'SUPER_ADMIN' || userRole === 'BRANCH_ADMIN';
+
+  return (
+    <>
+      {incidents.map((incident) => {
+        const type = getIncidentType(incident.description);
+        const isEmergency = type === 'emergency';
+        const cleanDesc = incident.description
+          ?.replace(/\[EMERGENCY\]|\[ASSISTANCE\]/, '')
+          .trim() || 'No description';
+
+        const lat = parseFloat(incident.latitude);
+        const lng = parseFloat(incident.longitude);
+        const routeData = incidentRoutes[incident.id];
+
+        // Skip if coordinates are invalid, zero, or out of reasonable range
+        if (isNaN(lat) || isNaN(lng)) return null;
+        if (lat === 0 && lng === 0) return null; // GPS not ready
+        if (lat < 4 || lat > 22 || lng < 115 || lng > 130) return null; // Outside Philippines
+
+        return (
+          <React.Fragment key={`incident-${incident.id}`}>
+            {routeData && routeData.geometry && (
+              <GeoJSON
+                data={routeData.geometry}
+                style={{
+                  color: '#2196f3',
+                  weight: 4,
+                  opacity: 0.8,
+                  dashArray: '10, 10'
+                }}
+              />
+            )}
+            <Marker
+              position={[lat, lng]}
+              icon={createIncidentIcon(isEmergency)}
+            >
+              <Popup>
+                <div className="incident-popup">
+                  <strong className={isEmergency ? 'emergency-text' : 'assistance-text'}>
+                    {isEmergency ? 'EMERGENCY ALERT' : 'ASSISTANCE REQUEST'}
+                  </strong>
+                  <div className="popup-info">
+                    {cleanDesc}<br />
+                    <strong>Time:</strong> {new Date(incident.created_at).toLocaleString()}<br />
+                    <strong>Session:</strong> #{incident.session}<br />
+                    {incident.latitude && incident.longitude && (
+                      <>
+                        <strong>Location:</strong><br />
+                        {parseFloat(incident.latitude).toFixed(6)}, {parseFloat(incident.longitude).toFixed(6)}<br />
+                        <a
+                          href={`https://www.google.com/maps?q=${incident.latitude},${incident.longitude}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="map-link"
+                        >
+                          View on Map
+                        </a>
+                      </>
+                    )}
+                    {routeData && routeData.distance && (
+                      <>
+                        <strong>Route Distance:</strong> {(routeData.distance / 1000).toFixed(1)} km<br />
+                        <strong>Est. Duration:</strong> {Math.round(routeData.duration / 60)} min
+                      </>
+                    )}
+                  </div>
+                  <div className="incident-action">
+                    <hr />
+                    <button
+                      className="route-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (routeData) {
+                          onHideRoute && onHideRoute(incident.id);
+                        } else {
+                          onShowRoute && onShowRoute(incident.id);
+                        }
+                      }}
+                    >
+                      {routeData ? 'Hide Route' : 'Show Route from Branch'}
+                    </button>
+                    {isAdmin && (
+                      <button
+                        className="resolve-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onResolve && onResolve(incident.id);
+                        }}
+                      >
+                        Resolve Incident
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          </React.Fragment>
+        );
+      })}
+    </>
+  );
+}
+
+function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showTrails, incidents }) {
   const filtered = branchFilter
     ? locations.filter((l) => l.branch === branchFilter)
     : locations;
@@ -314,7 +537,17 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
           // Determine ping status display
           const pingStatus = loc.recent_ping ? loc.recent_ping.status : null;
           const pingResponse = loc.recent_ping ? loc.recent_ping.response : null;
-          
+
+          // Check for active incidents for this driver
+          const driverEmergencies = incidents?.filter(inc =>
+            inc.session === loc.session_id && inc.description?.includes('[EMERGENCY]')
+          ) || [];
+          const driverAssistance = incidents?.filter(inc =>
+            inc.session === loc.session_id && inc.description?.includes('[ASSISTANCE]')
+          ) || [];
+          const hasEmergency = driverEmergencies.length > 0;
+          const hasAssistance = driverAssistance.length > 0;
+
           return (
             <React.Fragment key={`${loc.session_id}-${index}`}>
               {/* Optional trail - only shown when toggle is enabled */}
@@ -325,14 +558,28 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
                   fallbackPoints={loc.recent_points || []}
                 />
               )}
-              
+
               {/* Current position marker */}
-              <Marker 
+              <Marker
                 position={position}
-                icon={createDriverIcon(loc.driver, loc.vehicle)}
+                icon={createDriverIcon(loc.driver, loc.vehicle, hasEmergency, hasAssistance)}
               >
                 <Popup>
                   <div className="marker-popup">
+                    {/* Emergency Status Banner - Most Prominent */}
+                    {incidents && incidents.filter(inc => inc.session === loc.session_id && inc.description?.includes('[EMERGENCY]')).length > 0 && (
+                      <div className="emergency-banner">
+                        <strong>EMERGENCY ALERT</strong>
+                        <span>Driver needs immediate help!</span>
+                      </div>
+                    )}
+                    {incidents && incidents.filter(inc => inc.session === loc.session_id && inc.description?.includes('[ASSISTANCE]')).length > 0 && (
+                      <div className="assistance-banner">
+                        <strong>ASSISTANCE REQUESTED</strong>
+                        <span>Driver needs help</span>
+                      </div>
+                    )}
+
                     <strong className="driver-name">{loc.driver}</strong>
                     <div className="popup-info">
                       {loc.vehicle} — {loc.branch}<br />
@@ -360,9 +607,9 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
                         {pingStatus === 'RESPONDED' ? (
                           <>
                             <span className="ping-badge success">Responded</span><br />
-                            {pingResponse === 'YES' && '✅ Driver is fine'}
-                            {pingResponse === 'NO' && '❌ Driver needs assistance'}
-                            {pingResponse === 'NEED_ASSISTANCE' && '🚨 Emergency help needed'}
+                            {pingResponse === 'YES' && 'Driver is fine'}
+                            {pingResponse === 'NO' && 'Driver needs assistance'}
+                            {pingResponse === 'NEED_ASSISTANCE' && 'EMERGENCY: Help needed'}
                             {loc.recent_ping.responded_at && (
                               <><br /><small>at {new Date(loc.recent_ping.responded_at).toLocaleTimeString()}</small></>
                             )}
@@ -381,33 +628,20 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
                       <div className="ping-action">
                         <hr />
                         {(!loc.recent_ping || pingStatus === 'RESPONDED') ? (
-                          <button 
+                          <button
                             className="ping-btn"
                             onClick={(e) => {
                               e.stopPropagation();
                               onPing && onPing(loc.driver_id, loc.driver);
                             }}
                           >
-                            📢 Send Ping
+                            Send Ping
                           </button>
                         ) : (
                           <button className="ping-btn disabled" disabled>
-                            ⏳ Waiting for response...
+                            Waiting for response...
                           </button>
                         )}
-                      </div>
-                    )}
-                    
-                    {/* Video Call Button for Admins */}
-                    {isAdmin && (
-                      <div className="video-call-action">
-                        <hr />
-                        <VideoCallButton
-                          driverId={loc.driver_id}
-                          driverName={loc.driver}
-                          sessionId={loc.session_id}
-                          disabled={pingStatus === 'RESPONDED' || pingStatus === 'DELIVERED'}
-                        />
                       </div>
                     )}
                   </div>
@@ -440,19 +674,22 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
   const { user } = useAuth();
   const [locations, setLocations] = useState([]);
   const [allSessions, setAllSessions] = useState([]);
+  const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [selectedDriver, setSelectedDriver] = useState('');
   const [pinging, setPinging] = useState({});
   const [showTrails, setShowTrails] = useState(false);
+  const [showIncidents, setShowIncidents] = useState(true);
+  const [incidentRoutes, setIncidentRoutes] = useState({});
   const fetchRef = useRef(null);
 
   const handlePing = async (driverId, driverName) => {
     if (pinging[driverId]) return;
-    
+
     console.log('Sending ping from LiveMap:', { driverId, driverName, userRole: user?.role });
-    
+
     setPinging(prev => ({ ...prev, [driverId]: true }));
     try {
       const response = await ronda.ping.send(driverId);
@@ -467,6 +704,40 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
     } finally {
       setPinging(prev => ({ ...prev, [driverId]: false }));
     }
+  };
+
+  const handleResolve = async (incidentId) => {
+    try {
+      const response = await ronda.incidents.resolve(incidentId);
+      console.log('Resolve response:', response);
+      alert('Incident resolved successfully!');
+      // Refresh live data to remove resolved incident from map
+      refreshLiveData();
+    } catch (error) {
+      console.error('Resolve failed:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error';
+      alert(`Failed to resolve incident: ${errorMessage}`);
+    }
+  };
+
+  const handleShowRoute = async (incidentId) => {
+    try {
+      const response = await ronda.incidents.route(incidentId);
+      console.log('Route response:', response);
+      setIncidentRoutes(prev => ({ ...prev, [incidentId]: response }));
+    } catch (error) {
+      console.error('Route fetch failed:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error';
+      alert(`Failed to get route: ${errorMessage}`);
+    }
+  };
+
+  const handleHideRoute = (incidentId) => {
+    setIncidentRoutes(prev => {
+      const newRoutes = { ...prev };
+      delete newRoutes[incidentId];
+      return newRoutes;
+    });
   };
 
   const refreshLiveData = async () => {
@@ -485,71 +756,51 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
 
   const fetchLive = useCallback(async () => {
     try {
-      const [liveData, sessionsData] = await Promise.all([
+      const [liveData, sessionsData, incidentsData] = await Promise.all([
         ronda.sessions.live(),
         ronda.sessions.list(),
+        ronda.incidents.list(),
       ]);
-      
+
       // Count active drivers with GPS
       const activeDriversWithGPS = liveData.filter(loc => loc.latitude != null && loc.longitude != null);
       const hasActiveDrivers = activeDriversWithGPS.length > 0;
-      
+
       setLocations(liveData);
       setAllSessions(sessionsData);
+      // Filter incidents with coordinates, from today, and not resolved
+      const incidentsList = Array.isArray(incidentsData) ? incidentsData : (incidentsData.results || []);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const recentIncidents = incidentsList.filter(inc =>
+        inc.latitude && inc.longitude && new Date(inc.created_at) >= today && !inc.is_resolved
+      );
+      setIncidents(recentIncidents);
       setLastUpdate(new Date());
-      setError(null); // Clear any previous errors
-      
-      // Return polling decision for useEffect
+      setError(null);
+
       return hasActiveDrivers ? REFRESH_MS : SMART_POLL_INTERVAL;
     } catch (e) {
       const errorMessage = e.message || 'Failed to load live GPS data';
       setError(errorMessage);
-      
-      // Don't change locations on error, keep last known data
-      
-      // Return slower polling on error to reduce server load
-      return SMART_POLL_INTERVAL * 2; // Even slower on error
+      return SMART_POLL_INTERVAL * 2;
     } finally {
       setLoading(false);
     }
-  }, [setLocations, setAllSessions, setLastUpdate, setError, setLoading]);
+  }, [setLocations, setAllSessions, setIncidents, setLastUpdate, setError, setLoading]);
 
   useEffect(() => {
-    let currentInterval = REFRESH_MS;
     let isMounted = true;
     
-    const setupPolling = async () => {
-      if (!isMounted) return;
-      
-      try {
-        const nextInterval = await fetchLive();
-        
-        if (!isMounted) return;
-        
-        // Only update interval if it changed significantly
-        if (Math.abs(nextInterval - currentInterval) > 1000) {
-          currentInterval = nextInterval;
-          
-          // Clear existing interval
-          if (fetchRef.current) {
-            clearInterval(fetchRef.current);
-          }
-          
-          // Set new interval
-          fetchRef.current = setInterval(async () => {
-            if (!isMounted) return;
-            await setupPolling();
-          }, currentInterval);
-        }
-      } catch (error) {
-        if (isMounted) {
-          setError('Failed to setup polling');
-        }
-      }
-    };
+    // Initial fetch
+    fetchLive();
     
-    // Initial setup
-    setupPolling();
+    // Set up polling interval
+    fetchRef.current = setInterval(() => {
+      if (isMounted) {
+        fetchLive();
+      }
+    }, REFRESH_MS);
     
     // Cleanup
     return () => {
@@ -559,7 +810,7 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
         fetchRef.current = null;
       }
     };
-  }, [fetchLive]);
+  }, []);
 
   const displayList = branchFilter
     ? [...locations.filter((l) => l.branch === branchFilter), ...allSessions.filter((s) => s.branch_name && !locations.some((l) => l.session_id === s.id)).map((s) => ({ session_id: s.id, driver: s.driver_username, vehicle: s.vehicle_plate, branch: s.branch_name || s.branch, latitude: null, longitude: null, timestamp: null, is_active: s.is_active }))]
@@ -612,23 +863,57 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
             style={{ marginLeft: '10px' }}
             title={showTrails ? 'Hide movement trails' : 'Show movement trails'}
           >
-            {showTrails ? '📍 Trails: ON' : '📍 Trails: OFF'}
+            {showTrails ? 'Trails: ON' : 'Trails: OFF'}
+          </button>
+
+          {/* Incidents Toggle Button */}
+          <button
+            className={`incidents-toggle ${showIncidents ? 'active' : ''}`}
+            onClick={() => setShowIncidents(!showIncidents)}
+            style={{ marginLeft: '10px' }}
+            title={showIncidents ? 'Hide incidents' : 'Show incidents'}
+          >
+            {showIncidents ? `Alerts: ON (${incidents.length})` : `Alerts: OFF (${incidents.length})`}
           </button>
           
           <span className="live-map-updated">
             Real-time updates every 5s. Last: {lastUpdate ? lastUpdate.toLocaleTimeString() : '—'}
           </span>
         </div>
-        <MapContainer center={center} zoom={DEFAULT_ZOOM} className="live-map" scrollWheelZoom>
+        <MapContainer
+          center={center}
+          zoom={DEFAULT_ZOOM}
+          minZoom={MIN_ZOOM}
+          maxZoom={MAX_ZOOM}
+          maxBounds={QUEZON_BOUNDS}
+          maxBoundsViscosity={1.0}
+          className="live-map"
+          scrollWheelZoom
+        >
           <FixLeafletIcons />
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          <LiveMarkers 
-            locations={locations} 
-            branchFilter={branchFilter} 
+          <MapBounds />
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            bounds={PHILIPPINES_BOUNDS}
+          />
+
+          <LiveMarkers
+            locations={locations}
+            branchFilter={branchFilter}
             userRole={user?.role}
             onPing={handlePing}
             pinging={pinging}
             showTrails={showTrails}
+            incidents={incidents}
+          />
+          <IncidentMarkers
+            incidents={incidents}
+            showIncidents={showIncidents}
+            onResolve={handleResolve}
+            onShowRoute={handleShowRoute}
+            onHideRoute={handleHideRoute}
+            userRole={user?.role}
+            incidentRoutes={incidentRoutes}
           />
           <MapCenter center={center} />
           <MapZoomToDriver driverName={selectedDriver} locations={locations} />
@@ -636,15 +921,47 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
         <div className="live-map-legend">
           <span className="badge active">Active</span> Has recent GPS
           <span className="badge inactive" style={{ marginLeft: '1rem' }}>Inactive</span> No recent position
+          {incidents.length > 0 && (
+            <span style={{ marginLeft: '1rem' }}>
+              <span className="badge emergency" style={{ background: '#c62828', color: 'white' }}>EMRG</span> Emergency
+              <span className="badge assistance" style={{ background: '#ef6c00', color: 'white', marginLeft: '0.5rem' }}>ASST</span> Assistance
+            </span>
+          )}
         </div>
       </div>
-      
+
       {/* Right Sidebar */}
       <div className="live-map-sidebar">
         <div className="sidebar-header">
           <h3>Active Drivers</h3>
           <span className="driver-count">{locations.filter(l => l.latitude != null && l.longitude != null).length}</span>
         </div>
+
+        {/* Recent Incidents Section */}
+        {incidents.length > 0 && (
+          <div className="sidebar-incidents">
+            <div className="sidebar-incidents-header">
+              <h4>Recent Alerts</h4>
+              <span className="incident-count">{incidents.length}</span>
+            </div>
+            <div className="incidents-list-small">
+              {incidents.slice(0, 3).map(incident => {
+                const isEmergency = incident.description?.includes('[EMERGENCY]');
+                const cleanDesc = incident.description
+                  ?.replace(/\[EMERGENCY\]|\[ASSISTANCE\]/, '')
+                  .trim()
+                  .substring(0, 40) + '...';
+                return (
+                  <div key={incident.id} className={`sidebar-incident-item ${isEmergency ? 'emergency' : 'assistance'}`}>
+                    <span className="incident-type-tag">{isEmergency ? 'EMRG' : 'ASST'}</span>
+                    <span className="incident-desc-small" title={incident.description}>{cleanDesc}</span>
+                    <span className="incident-time">{new Date(incident.created_at).toLocaleTimeString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         
         <div className="driver-list">
           {locations.filter(l => l.latitude != null && l.longitude != null).map((loc) => {
@@ -653,11 +970,38 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
             const pingStatus = loc.recent_ping ? loc.recent_ping.status : null;
             const pingResponse = loc.recent_ping ? loc.recent_ping.response : null;
             const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'BRANCH_ADMIN';
-            
+
+            // Check for active incidents for this driver
+            const driverEmergencies = incidents?.filter(inc =>
+              inc.session === loc.session_id && inc.description?.includes('[EMERGENCY]')
+            ) || [];
+            const driverAssistance = incidents?.filter(inc =>
+              inc.session === loc.session_id && inc.description?.includes('[ASSISTANCE]')
+            ) || [];
+            const hasEmergency = driverEmergencies.length > 0;
+            const hasAssistance = driverAssistance.length > 0;
+
             return (
-              <div key={loc.session_id} className="driver-card">
+              <div key={loc.session_id} className={`driver-card ${hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`}>
+                {/* Emergency Alert Banner */}
+                {hasEmergency && (
+                  <div className="driver-card-alert emergency">
+                    <strong>EMERGENCY</strong>
+                    <span>Needs immediate help!</span>
+                  </div>
+                )}
+                {hasAssistance && !hasEmergency && (
+                  <div className="driver-card-alert assistance">
+                    <strong>ASSISTANCE</strong>
+                    <span>Needs help</span>
+                  </div>
+                )}
+
                 <div className="driver-header">
-                  <div className="driver-color" style={{ backgroundColor: colors.bg, borderColor: colors.border }}>
+                  <div
+                    className={`driver-color ${hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`}
+                    style={{ backgroundColor: hasEmergency ? '#c62828' : hasAssistance ? '#ef6c00' : colors.bg, borderColor: hasEmergency ? '#8e0000' : hasAssistance ? '#b35900' : colors.border }}
+                  >
                     {getDriverInitials(loc.driver)}
                   </div>
                   <div className="driver-info">
@@ -667,19 +1011,19 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
                     </div>
                   </div>
                 </div>
-                
+
                 {/* Ping Status */}
                 {loc.recent_ping && (
                   <div className="driver-ping-status">
                     {pingStatus === 'RESPONDED' ? (
                       <span className="ping-badge success">
-                        {pingResponse === 'YES' && '✅ Fine'}
-                        {pingResponse === 'NO' && '❌ Needs help'}
-                        {pingResponse === 'NEED_ASSISTANCE' && '🚨 Emergency'}
+                        {pingResponse === 'YES' && 'Fine'}
+                        {pingResponse === 'NO' && 'Needs help'}
+                        {pingResponse === 'NEED_ASSISTANCE' && 'EMERGENCY'}
                       </span>
                     ) : (
                       <span className="ping-badge pending">
-                        ⏳ Waiting...
+                        Waiting...
                       </span>
                     )}
                   </div>
@@ -689,16 +1033,16 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
                 {isAdmin && (
                   <div className="driver-ping-action">
                     {(!loc.recent_ping || pingStatus === 'RESPONDED') ? (
-                      <button 
-                        className="ping-btn-small"
+                      <button
+                        className={`ping-btn-small ${hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`}
                         onClick={() => handlePing && handlePing(loc.driver_id, loc.driver)}
                         disabled={pinging[loc.driver_id]}
                       >
-                        {pinging[loc.driver_id] ? '⏳' : '📢'} Ping
+                        {pinging[loc.driver_id] ? 'Sending...' : 'Send Ping'}
                       </button>
                     ) : (
                       <button className="ping-btn-small disabled" disabled>
-                        ⏳ Waiting...
+                        Waiting...
                       </button>
                     )}
                   </div>
