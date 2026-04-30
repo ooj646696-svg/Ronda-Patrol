@@ -3,7 +3,7 @@
  * Main screen with map view and session controls
  */
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Circle } from 'react-native-maps';
 import { useAuth } from '../../src/hooks/useAuth';
@@ -11,13 +11,21 @@ import { useSession } from '../../src/hooks/useSession';
 import { useLocation } from '../../src/hooks/useLocation';
 import { useRouter } from 'expo-router';
 import { gpsApi } from '../../src/api/gps';
+import { EmergencyBanner } from '../../src/components/EmergencyBanner';
+import { EmergencyOverlay } from '../../src/components/EmergencyOverlay';
+import { useEmergency } from '../../src/contexts/EmergencyContext';
+import { useNetworkConnectivity } from '../../src/services/networkConnectivity';
+import { offlineGpsQueueService } from '../../src/services/offlineGpsQueue';
 
 export default function HomeScreen() {
   const { user, logout } = useAuth();
   const { session, hasActiveSession, startSession, stopSession, loading } = useSession();
-  const { currentLocation, startTracking, stopTracking } = useLocation();
+  const { currentLocation, startTracking, stopTracking, startBackgroundTracking, stopBackgroundTracking, isBackgroundTracking } = useLocation();
   const router = useRouter();
   const [showVehicleSelect, setShowVehicleSelect] = useState(false);
+  const { triggerEmergency } = useEmergency();
+  const { isOnline, isOffline } = useNetworkConnectivity();
+  const [offlineQueueStats, setOfflineQueueStats] = useState({ totalEntries: 0, isOnline: true, isSyncing: false });
 
   const mapRegion = useMemo(() => ({
     latitude: currentLocation?.latitude || 14.5995,
@@ -32,20 +40,56 @@ export default function HomeScreen() {
     }
   }, [session]);
 
+  // Initialize offline queue service
+  useEffect(() => {
+    const initializeOfflineService = async () => {
+      try {
+        await offlineGpsQueueService.start();
+        console.log('Offline GPS queue service initialized');
+      } catch (error) {
+        console.error('Failed to initialize offline GPS queue service:', error);
+      }
+    };
+
+    initializeOfflineService();
+
+    // Set up periodic status updates
+    const statusInterval = setInterval(async () => {
+      try {
+        const stats = await offlineGpsQueueService.getQueueStats();
+        setOfflineQueueStats(stats);
+      } catch (error) {
+        console.error('Failed to get offline queue stats:', error);
+      }
+    }, 5000); // Update every 5 seconds
+
+    return () => {
+      clearInterval(statusInterval);
+      offlineGpsQueueService.stop();
+    };
+  }, []);
+
   // Start/stop GPS tracking based on session state
   useEffect(() => {
     if (hasActiveSession && session) {
       console.log('GPS tracking started');
       startTracking();
+      
+      // Start background tracking for continuous GPS
+      if (session.id) {
+        startBackgroundTracking(session.id);
+      }
     } else {
       console.log('GPS tracking stopped');
       stopTracking();
+      stopBackgroundTracking();
     }
 
     return () => {
       stopTracking();
+      stopBackgroundTracking();
     };
-  }, [hasActiveSession, session, startTracking, stopTracking]);
+  }, [hasActiveSession, session, startTracking, stopTracking, startBackgroundTracking, stopBackgroundTracking]);
 
   // Send GPS data to backend when location updates
   useEffect(() => {
@@ -61,8 +105,13 @@ export default function HomeScreen() {
             speed: currentLocation.speed ? Math.round(currentLocation.speed * 100) / 100 : undefined,
             altitude: currentLocation.altitude ? Math.round(currentLocation.altitude * 10) / 10 : undefined,
           });
-        } catch (error) {
-          console.error('Failed to send GPS data:', error);
+        } catch (error: any) {
+          // Don't log 400 errors (session ended) as they're expected
+          if (error.response?.status === 400) {
+            console.log('GPS data not sent - session may have ended');
+          } else {
+            console.error('Failed to send GPS data:', error);
+          }
         }
       };
 
@@ -75,11 +124,16 @@ export default function HomeScreen() {
   };
 
   const handleEmergency = () => {
-    // Navigate to emergency screen or trigger emergency alert
+    if (!session) {
+      Alert.alert('No Active Session', 'Please start a patrol session first.');
+      return;
+    }
+
+    // Navigate to emergency screen - visual indicators will only trigger after confirmation
     router.push({
       pathname: '/emergency',
       params: {
-        sessionId: session?.id,
+        sessionId: session.id,
         latitude: currentLocation?.latitude,
         longitude: currentLocation?.longitude,
       },
@@ -103,6 +157,9 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor="#0b0b0b" />
+      <EmergencyBanner />
+      <EmergencyOverlay />
+      
       {/* Header */}
       <View style={styles.header}>
         <View>
@@ -110,6 +167,18 @@ export default function HomeScreen() {
           <Text style={styles.status}>
             {hasActiveSession ? 'On Patrol' : 'Off Duty'}
           </Text>
+          {hasActiveSession && isBackgroundTracking && (
+            <Text style={styles.backgroundStatus}>📍 Background GPS Active</Text>
+          )}
+          {isOffline && (
+            <Text style={styles.offlineStatus}>📵 Offline Mode</Text>
+          )}
+          {offlineQueueStats.totalEntries > 0 && (
+            <Text style={styles.queueStatus}>
+              📦 {offlineQueueStats.totalEntries} GPS points queued
+              {offlineQueueStats.isSyncing && ' (syncing...)'}
+            </Text>
+          )}
         </View>
         <TouchableOpacity onPress={logout} style={styles.logoutButton}>
           <Text style={styles.logoutText}>Logout</Text>
@@ -239,6 +308,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#888',
     marginTop: 4,
+  },
+  backgroundStatus: {
+    fontSize: 12,
+    color: '#2d8c4c',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  offlineStatus: {
+    fontSize: 12,
+    color: '#ff9500',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  queueStatus: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 2,
+    fontWeight: '500',
   },
   logoutButton: {
     paddingHorizontal: 16,

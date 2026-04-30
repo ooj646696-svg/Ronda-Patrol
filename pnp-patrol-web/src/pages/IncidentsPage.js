@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import * as ronda from '../api/ronda';
-import { useAuth } from '../contexts/AuthContext';
 import './IncidentsPage.css';
 
 export default function IncidentsPage() {
-  const { user } = useAuth();
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

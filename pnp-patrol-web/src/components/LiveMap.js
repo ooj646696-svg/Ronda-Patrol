@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Popup, Polygon, GeoJSON, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Popup, GeoJSON, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import * as ronda from '../api/ronda';
 import { useAuth } from '../contexts/AuthContext';
@@ -27,57 +27,6 @@ const QUEZON_BOUNDS = [
 ];
 
 // Quezon Province polygon boundary - accurate coordinates covering all cities and municipalities
-// Northern boundary (Aurora/Baler border): General Nakar, Infanta, Real
-// Eastern boundary (Pacific coast): Polillo Islands, Jomalig, Patnanungan, Panukulan
-// Southern boundary (Bondoc Peninsula): San Francisco, San Andres, Mulanay, San Narciso
-// Western boundary (Laguna/Batangas): Mauban, Sampaloc, Lucban, Tayabas, Sariaya, Candelaria, Tiaong
-const QUEZON_POLYGON = [
-  // Northern boundary - Aurora border (General Nakar, Real, Infanta)
-  [15.33, 121.58],  // Northwest - near Real/Aurora border
-  [15.32, 121.70],  // North - Real area
-  [15.30, 121.85],  // North - Infanta area
-  [15.28, 122.00],  // Northeast - General Nakar
-  
-  // Eastern coast - Pacific Ocean
-  [15.25, 122.15],  // Dinahican area
-  [15.20, 122.25],  // East coast
-  [15.10, 122.35],  // Polillo area (Polillo Island)
-  [15.00, 122.40],  // Jomalig Island area
-  [14.85, 122.45],  // Patnanungan/Panukulan area
-  [14.70, 122.42],  // Burdeos area
-  [14.55, 122.38],  // East coast - Calauag area
-  
-  // Southern boundary - Bondoc Peninsula
-  [14.40, 122.35],  // San Andres area
-  [14.25, 122.30],  // San Francisco area
-  [14.15, 122.20],  // Mulanay area
-  [14.05, 122.10],  // San Narciso area
-  [13.95, 122.00],  // South tip - Bondoc Peninsula
-  [13.90, 121.90],  // Southwest - near Lopez
-  [13.88, 121.80],  // Unisan/Padre Burgos area
-  [13.85, 121.70],  // Gumaca/Guinayangan area
-  
-  // Western boundary - Laguna/Batangas border
-  [13.82, 121.58],  // Pagbilao area
-  [13.80, 121.50],  // Lucena City
-  [13.78, 121.40],  // Tayabas City
-  [13.76, 121.28],  // Sampaloc/Lucban area
-  [13.75, 121.18],  // Mauban area
-  [13.76, 121.10],  // Sariaya area
-  [13.80, 121.00],  // Candelaria area
-  [13.85, 120.90],  // San Antonio area
-  [13.92, 120.85],  // Tiaong area
-  [14.05, 120.88],  // Dolores area
-  [14.20, 120.95],  // Liliw border area
-  [14.35, 121.05],  // Nagcarlan border area
-  [14.50, 121.18],  // Luisiana border area
-  [14.65, 121.32],  // Majayjay border area
-  [14.80, 121.45],  // West central
-  [14.95, 121.52],  // West near Infanta
-  [15.15, 121.55],  // Northwest return
-  [15.33, 121.58],  // Close polygon
-];
-
 // Color palette for drivers - distinct colors for easy identification
 const DRIVER_COLORS = [
   { bg: '#e53935', border: '#c62828' }, // Red
@@ -124,16 +73,32 @@ function getDriverColorIndex(driverName) {
 }
 
 // Create custom marker icon with driver initials
-function createDriverIcon(driverName, vehiclePlate, hasEmergency, hasAssistance) {
+function createDriverIcon(driverName, vehiclePlate, hasEmergency, hasAssistance, isOffline = false) {
   const colorIndex = getDriverColorIndex(driverName);
   const colors = DRIVER_COLORS[colorIndex];
   const initials = getDriverInitials(driverName);
 
-  // Use emergency/assistance colors if active
-  const bgColor = hasEmergency ? '#c62828' : hasAssistance ? '#ef6c00' : colors.bg;
-  const borderColor = hasEmergency ? '#8e0000' : hasAssistance ? '#b35900' : colors.border;
+  // Use grey colors if offline, otherwise use emergency/assistance colors if active
+  let bgColor, borderColor;
+  if (isOffline) {
+    bgColor = '#808080'; // Grey for offline
+    borderColor = '#606060';
+  } else if (hasEmergency) {
+    bgColor = '#c62828';
+    borderColor = '#8e0000';
+  } else if (hasAssistance) {
+    bgColor = '#ef6c00';
+    borderColor = '#b35900';
+  } else {
+    bgColor = colors.bg;
+    borderColor = colors.border;
+  }
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48"><circle cx="20" cy="24" r="18" fill="${bgColor}" stroke="${borderColor}" stroke-width="3"/><text x="20" y="28" text-anchor="middle" fill="white" font-size="12" font-weight="bold" font-family="Arial, sans-serif">${initials}</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48">
+    <circle cx="20" cy="24" r="18" fill="${bgColor}" stroke="${borderColor}" stroke-width="3"/>
+    ${isOffline ? '<circle cx="32" cy="16" r="6" fill="#ff4444" stroke="#cc0000" stroke-width="1"/><text x="32" y="20" text-anchor="middle" fill="white" font-size="8" font-weight="bold">!</text>' : ''}
+    <text x="20" y="28" text-anchor="middle" fill="white" font-size="12" font-weight="bold" font-family="Arial, sans-serif">${initials}</text>
+  </svg>`;
 
   const svgUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
 
@@ -142,7 +107,7 @@ function createDriverIcon(driverName, vehiclePlate, hasEmergency, hasAssistance)
     iconSize: [40, 48],
     iconAnchor: [20, 48],
     popupAnchor: [0, -48],
-    className: `custom-driver-marker ${hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`,
+    className: `custom-driver-marker ${isOffline ? 'offline' : hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`,
   });
 }
 
@@ -548,6 +513,43 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
           const hasEmergency = driverEmergencies.length > 0;
           const hasAssistance = driverAssistance.length > 0;
 
+          // Determine if driver is offline (no GPS data for more than 5 minutes)
+          let isOffline = false;
+          
+          // Debug: Log the entire location object
+          console.log(`Driver ${loc.driver} data:`, {
+            timestamp: loc.timestamp,
+            last_updated: loc.last_updated,
+            updated_at: loc.updated_at,
+            created_at: loc.created_at,
+            session_id: loc.session_id
+          });
+          
+          // Check multiple possible timestamp fields
+          const timestampField = loc.timestamp || loc.last_updated || loc.updated_at;
+          
+          if (timestampField) {
+            try {
+              const timestamp = new Date(timestampField);
+              const now = new Date();
+              const timeDiff = now.getTime() - timestamp.getTime();
+              isOffline = timeDiff > 5 * 60 * 1000; // 5 minutes
+              
+              // Debug logging
+              console.log(`Driver ${loc.driver} time analysis:`, {
+                timestamp: timestampField,
+                timeDiffMinutes: Math.round(timeDiff / 60000),
+                isOffline
+              });
+            } catch (error) {
+              console.error('Error parsing timestamp for offline detection:', error);
+              isOffline = true; // Assume offline if timestamp is invalid
+            }
+          } else {
+            isOffline = true; // Assume offline if no timestamp
+            console.log(`Driver ${loc.driver} offline: No timestamp field found`);
+          }
+
           return (
             <React.Fragment key={`${loc.session_id}-${index}`}>
               {/* Optional trail - only shown when toggle is enabled */}
@@ -562,7 +564,7 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
               {/* Current position marker */}
               <Marker
                 position={position}
-                icon={createDriverIcon(loc.driver, loc.vehicle, hasEmergency, hasAssistance)}
+                icon={createDriverIcon(loc.driver, loc.vehicle, hasEmergency, hasAssistance, isOffline)}
               >
                 <Popup>
                   <div className="marker-popup">
@@ -582,8 +584,9 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
 
                     <strong className="driver-name">{loc.driver}</strong>
                     <div className="popup-info">
+                      {isOffline && <div className="offline-indicator">📵 <strong>OFFLINE</strong> - No recent GPS data</div>}
                       {loc.vehicle} — {loc.branch}<br />
-                      {loc.timestamp ? new Date(loc.timestamp).toLocaleString() : '—'}<br />
+                      {timestampField ? new Date(timestampField).toLocaleString() : '—'}<br />
                       <strong>Coordinates:</strong><br />
                       Lat: {loc.latitude?.toFixed(6) || 'N/A'}<br />
                       Lng: {loc.longitude?.toFixed(6) || 'N/A'}<br />
@@ -787,7 +790,7 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
     } finally {
       setLoading(false);
     }
-  }, [setLocations, setAllSessions, setIncidents, setLastUpdate, setError, setLoading]);
+  }, [setLocations, setAllSessions, setIncidents, setLastUpdate, setError, setLoading, fetchLive]);
 
   useEffect(() => {
     let isMounted = true;
@@ -981,6 +984,23 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
             const hasEmergency = driverEmergencies.length > 0;
             const hasAssistance = driverAssistance.length > 0;
 
+            // Check if driver is offline (same logic as markers)
+            const timestampField = loc.timestamp || loc.last_updated || loc.updated_at;
+            let isOfflineDriver = false;
+            
+            if (timestampField) {
+              try {
+                const timestamp = new Date(timestampField);
+                const now = new Date();
+                const timeDiff = now.getTime() - timestamp.getTime();
+                isOfflineDriver = timeDiff > 5 * 60 * 1000; // 5 minutes
+              } catch (error) {
+                isOfflineDriver = true; // Assume offline if timestamp is invalid
+              }
+            } else {
+              isOfflineDriver = true; // Assume offline if no timestamp
+            }
+
             return (
               <div key={loc.session_id} className={`driver-card ${hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`}>
                 {/* Emergency Alert Banner */}
@@ -994,6 +1014,12 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
                   <div className="driver-card-alert assistance">
                     <strong>ASSISTANCE</strong>
                     <span>Needs help</span>
+                  </div>
+                )}
+                {isOfflineDriver && !hasEmergency && !hasAssistance && (
+                  <div className="driver-card-alert offline">
+                    <strong>📵 OFFLINE</strong>
+                    <span>No recent GPS data</span>
                   </div>
                 )}
 

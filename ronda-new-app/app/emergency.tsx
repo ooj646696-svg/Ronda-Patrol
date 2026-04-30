@@ -8,6 +8,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { emergencyApi } from '../src/api/emergency';
 import { useLocation } from '../src/hooks/useLocation';
+import { EmergencyBanner } from '../src/components/EmergencyBanner';
+import { EmergencyOverlay } from '../src/components/EmergencyOverlay';
+import { useEmergency } from '../src/contexts/EmergencyContext';
 
 export default function EmergencyScreen() {
   const router = useRouter();
@@ -18,6 +21,7 @@ export default function EmergencyScreen() {
   
   const { currentLocation, startTracking, stopTracking } = useLocation();
   const [sending, setSending] = useState(false);
+  const { triggerEmergency } = useEmergency();
 
   useEffect(() => {
     startTracking();
@@ -54,6 +58,12 @@ export default function EmergencyScreen() {
           onPress: async () => {
             try {
               setSending(true);
+              
+              // Trigger visual emergency indicators
+              if (sessionId) {
+                triggerEmergency(type, sessionId, type === 'EMERGENCY' ? 'Emergency alert triggered by driver' : 'Assistance requested by driver');
+              }
+              
               await emergencyApi.createEmergencyAlert({
                 session: sessionId,
                 type,
@@ -83,6 +93,8 @@ export default function EmergencyScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor="#0b0b0b" />
+      <EmergencyBanner />
+      <EmergencyOverlay />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>

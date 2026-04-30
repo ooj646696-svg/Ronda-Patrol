@@ -8,6 +8,7 @@ import { locationService, LocationData } from '../services/location';
 export function useLocation() {
   const [currentLocation, setCurrentLocation] = useState<LocationData | null>(null);
   const [isTracking, setIsTracking] = useState(false);
+  const [isBackgroundTracking, setIsBackgroundTracking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const callbackRef = useRef<((location: LocationData) => void) | null>(null);
 
@@ -66,6 +67,31 @@ export function useLocation() {
     callbackRef.current = null;
   }, []);
 
+  const startBackgroundTracking = useCallback(async (sessionId: number) => {
+    setError(null);
+    try {
+      const success = await locationService.startBackgroundTracking(sessionId);
+      if (success) {
+        setIsBackgroundTracking(true);
+      } else {
+        setError('Failed to start background location tracking');
+      }
+      return success;
+    } catch (err: any) {
+      setError(err.message || 'Failed to start background tracking');
+      return false;
+    }
+  }, []);
+
+  const stopBackgroundTracking = useCallback(async () => {
+    try {
+      await locationService.stopBackgroundTracking();
+      setIsBackgroundTracking(false);
+    } catch (err: any) {
+      setError(err.message || 'Failed to stop background tracking');
+    }
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -76,10 +102,13 @@ export function useLocation() {
   return {
     currentLocation,
     isTracking,
+    isBackgroundTracking,
     error,
     requestPermissions,
     getCurrentLocation,
     startTracking,
     stopTracking,
+    startBackgroundTracking,
+    stopBackgroundTracking,
   };
 }

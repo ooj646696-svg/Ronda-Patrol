@@ -50,6 +50,28 @@
    color: #c00;
  }
 
+/* Offline marker styles */
+.custom-driver-marker.offline {
+  opacity: 0.7;
+  filter: grayscale(100%);
+}
+
+.offline-indicator {
+  background: #ff4444;
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.offline-indicator::before {
+  content: "📵 ";
+  margin-right: 0.25rem;
+}
+
 /* Marker Popup Styles */
 .marker-popup {
   min-width: 200px;
@@ -654,7 +676,12 @@
 }
 
 .driver-card-alert.assistance {
-  background: #ef6c00;
+  background: linear-gradient(135deg, #ef6c00, #d35400);
+  color: white;
+}
+
+.driver-card-alert.offline {
+  background: linear-gradient(135deg, #808080, #606060);
   color: white;
 }
 
