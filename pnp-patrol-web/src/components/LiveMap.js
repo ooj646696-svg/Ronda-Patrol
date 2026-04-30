@@ -790,8 +790,9 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
     } finally {
       setLoading(false);
     }
-  }, [setLocations, setAllSessions, setIncidents, setLastUpdate, setError, setLoading, fetchLive]);
+  }, [setLocations, setAllSessions, setIncidents, setLastUpdate, setError, setLoading]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     let isMounted = true;
     
