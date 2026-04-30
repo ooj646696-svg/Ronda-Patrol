@@ -38,7 +38,11 @@ export const getWsUrl = (): string => {
 };
 
 export const isDevelopment = (): boolean => {
-  return process.env.EXPO_PUBLIC_ENV === 'development' || Constants.appOwnership === 'expo';
+  return (
+    process.env.EXPO_PUBLIC_ENV === 'development' ||
+    process.env.EXPO_PUBLIC_ENV === 'preview' ||
+    Constants.appOwnership === 'expo'
+  );
 };
 
 export const config = {

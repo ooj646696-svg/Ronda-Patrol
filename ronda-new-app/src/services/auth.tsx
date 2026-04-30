@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi } from '../api/auth';
 import { setTokens, clearTokens, getAccessToken } from '../api/client';
 import { User, LoginResponse } from '../types';
+import { PermissionsService } from './permissions';
 
 const USER_KEY = '@ronda_user';
 
@@ -66,6 +67,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const parsedUser = authApi.parseUserFromToken(tokens.access);
       setUser(parsedUser);
       await AsyncStorage.setItem(USER_KEY, JSON.stringify(parsedUser));
+      
+      // Request app permissions after successful login
+      console.log('🔐 Requesting permissions after login...');
+      PermissionsService.requestAllPermissions().catch((error) => {
+        console.error('Failed to request permissions:', error);
+      });
       
       return parsedUser;
     } catch (error) {
