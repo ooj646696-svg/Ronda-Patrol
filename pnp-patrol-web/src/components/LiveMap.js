@@ -757,7 +757,7 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
     }
   };
 
-  const fetchLive = useCallback(async () => {
+  const fetchLive = async () => {
     try {
       const [liveData, sessionsData, incidentsData] = await Promise.all([
         ronda.sessions.live(),
@@ -790,9 +790,8 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
     } finally {
       setLoading(false);
     }
-  }, [setLocations, setAllSessions, setIncidents, setLastUpdate, setError, setLoading]);
+  };
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     let isMounted = true;
     
