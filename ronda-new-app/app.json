@@ -55,6 +55,16 @@
         {
           "forceUpdate": true
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#E6F4FE",
+          "sounds": [
+            "./assets/sounds/notification.wav"
+          ]
+        }
       ]
     ],
     "experiments": {

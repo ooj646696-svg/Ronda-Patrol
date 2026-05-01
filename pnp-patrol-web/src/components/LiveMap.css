@@ -331,6 +331,20 @@
   text-overflow: ellipsis;
 }
 
+.driver-location {
+  font-size: 0.75rem;
+  color: #1565c0;
+  margin-top: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.sidebar-location {
+  font-weight: 500;
+}
+
 /* Ping Status in Sidebar */
 .driver-ping-status {
   margin: 0.5rem 0;
@@ -655,7 +669,7 @@
   padding: 0.5rem;
   border-radius: 4px;
   margin: -0.5rem -0.5rem 0.5rem -0.5rem;
-  text-align: center;
+  text-align: left;
 }
 
 .driver-card-alert strong {

@@ -21,6 +21,40 @@ export class LocationService {
   private watchId: Location.LocationSubscription | null = null;
   private isTracking = false;
   private isBackgroundTracking = false;
+  private lastLocation: LocationData | null = null;
+
+  
+  /**
+   * Filter location updates to reduce drift
+   */
+  private shouldUpdateLocation(newLocation: LocationData): boolean {
+    // If accuracy is poor (>50m), don't update
+    if (newLocation.accuracy && newLocation.accuracy > 50) {
+      console.log('Skipping update - poor accuracy:', newLocation.accuracy);
+      return false;
+    }
+
+    // If this is the first location, accept it
+    if (!this.lastLocation) {
+      return true;
+    }
+
+    // Calculate distance from last location
+    const distance = this.calculateDistance(
+      this.lastLocation.latitude,
+      this.lastLocation.longitude,
+      newLocation.latitude,
+      newLocation.longitude
+    );
+
+    // If movement is less than 3 meters, consider it drift
+    if (distance < 3) {
+      console.log('Skipping update - minimal movement:', distance);
+      return false;
+    }
+
+    return true;
+  }
 
   /**
    * Request location permissions
@@ -122,7 +156,12 @@ export class LocationService {
             altitude: location.coords.altitude || undefined,
             timestamp: new Date().toISOString(),
           };
-          callback(locationData);
+
+          // Apply drift filtering
+          if (this.shouldUpdateLocation(locationData)) {
+            this.lastLocation = locationData;
+            callback(locationData);
+          }
         }
       );
 
@@ -173,11 +212,25 @@ export class LocationService {
         }
         if (data) {
           const { locations } = data as { locations: Location.LocationObject[] };
-          console.log('Background location update:', locations[0]);
+          const location = locations[0];
           
-          // Here you would send the location to your backend
-          // This is where you'd integrate with your GPS API
-          await this.sendBackgroundLocation(locations[0], sessionId);
+          const locationData: LocationData = {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            accuracy: location.coords.accuracy || undefined,
+            speed: location.coords.speed || undefined,
+            altitude: location.coords.altitude || undefined,
+            timestamp: new Date().toISOString(),
+          };
+
+          // Apply drift filtering for background tracking too
+          if (this.shouldUpdateLocation(locationData)) {
+            this.lastLocation = locationData;
+            console.log('Background location update (filtered):', locationData);
+            await this.sendBackgroundLocation(location, sessionId);
+          } else {
+            console.log('Background location update skipped (drift filter)');
+          }
         }
       });
 
@@ -205,11 +258,19 @@ export class LocationService {
     try {
       if (this.isBackgroundTracking) {
         await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-        this.isBackgroundTracking = false;
         console.log('Background location tracking stopped');
       }
-    } catch (error) {
-      console.error('Error stopping background location tracking:', error);
+    } catch (error: any) {
+      // TaskNotFoundException is expected if app restarted or task wasn't started
+      // Just reset the state silently
+      if (error?.message?.includes('TaskNotFoundException') || error?.message?.includes('not found')) {
+        console.log('Background task already stopped or not found');
+      } else {
+        console.error('Error stopping background location tracking:', error);
+      }
+    } finally {
+      // Always reset the tracking flag
+      this.isBackgroundTracking = false;
     }
   }
 
@@ -253,13 +314,81 @@ export class LocationService {
   }
 
   /**
-   * Get adaptive GPS interval based on speed
+   * Get adaptive GPS interval based on movement state
+   *
+   * THESIS DEFENSE STRATEGY:
+   * - Moving patrol: 8-10 seconds (near real-time, battery-efficient)
+   * - Stationary: 30-60 seconds (conserves resources)
+   * - Emergency mode: 3-5 seconds (high-priority tracking)
+   *
+   * Stationary defined as: < 5-10 meters movement in 1 minute
    */
-  getAdaptiveInterval(speed?: number | null): number {
-    if (!speed || speed === 0) return 30000; // Stationary: 30s
-    if (speed < 2) return 15000; // Walking: 15s
-    if (speed < 8) return 10000; // Slow vehicle: 10s
-    return 5000; // Fast vehicle: 5s
+  getAdaptiveInterval(speed?: number | null, isEmergency: boolean = false): number {
+    // Emergency/High-Priority Mode: Override all intervals
+    if (isEmergency) {
+      return 3000; // 3-5 seconds during emergency
+    }
+
+    // Stationary: 30-60 seconds to conserve battery/data
+    if (!speed || speed === 0) {
+      return 60000; // 60 seconds when stationary
+    }
+
+    // Walking/Slow movement: 30 seconds
+    if (speed < 2) {
+      return 30000; // 30 seconds
+    }
+
+    // Normal patrol movement: 8-10 seconds (smooth real-time)
+    if (speed < 10) {
+      return 10000; // 10 seconds
+    }
+
+    // Fast movement: 8 seconds (more responsive)
+    return 8000; // 8 seconds
+  }
+
+  /**
+   * Detect if patrol unit is stationary
+   * Definition: Movement less than 10 meters within 1 minute
+   */
+  isStationary(currentLocation: LocationData, previousLocation?: LocationData | null): boolean {
+    if (!previousLocation) return false;
+
+    const timeDiff = new Date(currentLocation.timestamp).getTime() - new Date(previousLocation.timestamp).getTime();
+    if (timeDiff < 60000) return false; // Need at least 1 minute of data
+
+    // Calculate distance using Haversine formula
+    const distance = this.calculateDistance(
+      previousLocation.latitude,
+      previousLocation.longitude,
+      currentLocation.latitude,
+      currentLocation.longitude
+    );
+
+    // Stationary if moved less than 10 meters in 1 minute
+    return distance < 10;
+  }
+
+  /**
+   * Calculate distance between two coordinates in meters (Haversine formula)
+   */
+  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = this.degreesToRadians(lat2 - lat1);
+    const dLon = this.degreesToRadians(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.degreesToRadians(lat1)) *
+      Math.cos(this.degreesToRadians(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  private degreesToRadians(degrees: number): number {
+    return degrees * (Math.PI / 180);
   }
 }
 

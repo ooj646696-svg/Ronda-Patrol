@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import * as ronda from '../api/ronda';
 import UserLogoutControl from '../components/UserLogoutControl';
 import LogoutAllUsers from '../components/LogoutAllUsers';
+import { reverseGeocode, getShortLocationName } from '../utils/geocoding';
 import './DashboardPage.css';
 import '../components/UserLogoutControl.css';
 
@@ -110,7 +111,48 @@ export function DashboardPage() {
     };
   }, []);
 
-  const getPingStatusDisplay = (ping) => {
+  // Component to display location name with geocoding
+function LocationName({ latitude, longitude }) {
+  const [locationName, setLocationName] = useState('Locating...');
+  const [showCoords, setShowCoords] = useState(false);
+
+  useEffect(() => {
+    if (!latitude || !longitude) {
+      setLocationName('No location');
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchLocation = async () => {
+      const address = await reverseGeocode(latitude, longitude);
+      if (!cancelled) {
+        setLocationName(getShortLocationName(address));
+      }
+    };
+
+    fetchLocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [latitude, longitude]);
+
+  return (
+    <span 
+      className="location-name" 
+      onClick={() => setShowCoords(!showCoords)}
+      title={`${latitude?.toFixed(6)}, ${longitude?.toFixed(6)} - Click to toggle`}
+    >
+      {showCoords 
+        ? `${latitude?.toFixed(6)}, ${longitude?.toFixed(6)}`
+        : locationName
+      }
+    </span>
+  );
+}
+
+const getPingStatusDisplay = (ping) => {
     if (!ping) return null;
     
     if (ping.status === 'RESPONDED') {
@@ -153,7 +195,10 @@ export function DashboardPage() {
   return (
     <div className="dashboard">
       <h2>Dashboard</h2>
-      <p className="dashboard-welcome">Welcome, {user?.username} ({user?.role?.replace('_', ' ')})</p>
+      <p className="dashboard-welcome">
+        Welcome, {user?.username} ({user?.role?.replace('_', ' ')})
+        {user?.branchName && <span className="branch-badge">{user.branchName}</span>}
+      </p>
       <div className="dashboard-cards">
         <div className="card">
           <span className="card-value">{live.length}</span>
@@ -254,13 +299,13 @@ export function DashboardPage() {
                   </div>
                   <div className="info-row">
                     <span className="info-label">Branch:</span>
-                    <span className="info-value">{item.branch}</span>
+                    <span className="info-value">{item.branch_name || item.branch}</span>
                   </div>
                   {item.latitude && item.longitude && (
                     <div className="info-row">
                       <span className="info-label">Location:</span>
-                      <span className="info-value">
-                        {item.latitude.toFixed(6)}, {item.longitude.toFixed(6)}
+                      <span className="info-value location-value">
+                        <LocationName latitude={item.latitude} longitude={item.longitude} />
                       </span>
                     </div>
                   )}

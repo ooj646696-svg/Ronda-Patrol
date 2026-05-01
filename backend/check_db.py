@@ -1,17 +1,22 @@
-from patrol_api.models_snapshots import VehiclePhoto
-from apps.vehicles.models import VehiclePhotoSubmission
+import os
+import django
 
-print(f"VehiclePhoto records: {VehiclePhoto.objects.count()}")
-print(f"Submissions: {VehiclePhotoSubmission.objects.count()}")
+# Set up Django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
+django.setup()
 
-# Check if any photos have submission_id
-photos_with_submission = VehiclePhoto.objects.filter(submission_id__isnull=False)
-print(f"Photos with submission_id: {photos_with_submission.count()}")
+from django.db import connection
 
-# Show submissions
-for sub in VehiclePhotoSubmission.objects.all():
-    print(f"Submission {sub.id}: driver={sub.driver.username}, photos count={sub.photo_count}")
+with connection.cursor() as cursor:
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tables = cursor.fetchall()
     
-# Show some photos
-for photo in VehiclePhoto.objects.all()[:5]:
-    print(f"Photo {photo.id}: submission_id={photo.submission_id}, shot={photo.shot_type}, image={photo.image}")
+    print("Tables containing 'push':")
+    for table in tables:
+        if 'push' in table[0].lower():
+            print(f"  {table[0]}")
+    
+    print("\nAll patrol_api tables:")
+    for table in tables:
+        if 'patrol_api' in table[0]:
+            print(f"  {table[0]}")

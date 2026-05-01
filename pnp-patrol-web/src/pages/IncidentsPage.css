@@ -242,6 +242,24 @@
   text-decoration: underline;
 }
 
+/* Location Item with Geocoding */
+.detail-item.location-item {
+  flex-wrap: wrap;
+}
+
+.detail-item .location-name {
+  cursor: pointer;
+  color: #1565c0;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  font-size: 0.875rem;
+}
+
+.detail-item .location-name:hover {
+  color: #0d47a1;
+  text-decoration-style: solid;
+}
+
 .incident-image {
   margin-top: 1rem;
 }

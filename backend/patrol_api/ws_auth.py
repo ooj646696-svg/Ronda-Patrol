@@ -17,7 +17,6 @@ from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import UntypedToken
 
 
-@staticmethod
 def _get_token_from_scope(scope) -> str | None:
     query_string = scope.get("query_string", b"").decode("utf-8")
     params = parse_qs(query_string)

@@ -46,6 +46,7 @@ export const authApi = {
         username: payload.username || payload.sub,
         role: payload.role || 'DRIVER',
         branchId: payload.branch_id ?? null,
+        branchName: payload.branch_name || null,
         email: payload.email,
       };
     } catch (error) {

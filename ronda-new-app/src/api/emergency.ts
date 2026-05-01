@@ -42,6 +42,16 @@ export const emergencyApi = {
   },
 
   /**
+   * Send ping to driver (Admin only)
+   */
+  async sendPing(driverId: number): Promise<any> {
+    const response = await apiClient.post('/ping/send/', {
+      driver_id: driverId,
+    });
+    return response.data;
+  },
+
+  /**
    * Get nearby personnel for emergency response
    */
   async getNearbyPersonnel(latitude: number, longitude: number): Promise<any[]> {

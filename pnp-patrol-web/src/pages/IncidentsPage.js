@@ -1,6 +1,48 @@
 import React, { useState, useEffect } from 'react';
 import * as ronda from '../api/ronda';
+import { reverseGeocode, getShortLocationName } from '../utils/geocoding';
 import './IncidentsPage.css';
+
+// Component to display location name with geocoding
+function LocationName({ latitude, longitude }) {
+  const [locationName, setLocationName] = useState('Locating...');
+  const [showCoords, setShowCoords] = useState(false);
+
+  useEffect(() => {
+    if (!latitude || !longitude) {
+      setLocationName('No location');
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchLocation = async () => {
+      const address = await reverseGeocode(latitude, longitude);
+      if (!cancelled) {
+        setLocationName(getShortLocationName(address));
+      }
+    };
+
+    fetchLocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [latitude, longitude]);
+
+  return (
+    <span 
+      className="location-name" 
+      onClick={() => setShowCoords(!showCoords)}
+      title={`${latitude?.toFixed(6)}, ${longitude?.toFixed(6)} - Click to toggle`}
+    >
+      {showCoords 
+        ? `${latitude?.toFixed(6)}, ${longitude?.toFixed(6)}`
+        : locationName
+      }
+    </span>
+  );
+}
 
 export default function IncidentsPage() {
   const [incidents, setIncidents] = useState([]);
@@ -127,11 +169,12 @@ export default function IncidentsPage() {
                       <span className="value">#{incident.session}</span>
                     </div>
                     {incident.latitude && incident.longitude && (
-                      <div className="detail-item">
+                      <div className="detail-item location-item">
                         <span className="label">Location:</span>
-                        <span className="value coords">
-                          {parseFloat(incident.latitude).toFixed(6)}, {parseFloat(incident.longitude).toFixed(6)}
-                        </span>
+                        <LocationName 
+                          latitude={parseFloat(incident.latitude)} 
+                          longitude={parseFloat(incident.longitude)} 
+                        />
                         <a
                           href={`https://www.google.com/maps?q=${incident.latitude},${incident.longitude}`}
                           target="_blank"

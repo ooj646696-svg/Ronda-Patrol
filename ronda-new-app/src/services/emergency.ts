@@ -96,6 +96,20 @@ export class EmergencyService {
   }
 
   /**
+   * Send ping to driver (Admin only)
+   */
+  async sendPing(driverId: number): Promise<any | null> {
+    try {
+      const result = await emergencyApi.sendPing(driverId);
+      console.log('Ping sent to driver:', driverId, result);
+      return result;
+    } catch (error) {
+      console.error('Error sending ping:', error);
+      return null;
+    }
+  }
+
+  /**
    * Get active pings
    */
   async getActivePings(): Promise<PingRequest[]> {

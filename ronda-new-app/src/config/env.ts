@@ -9,6 +9,19 @@ export const getApiBaseUrl = (): string => {
   const envUrl = process.env.EXPO_PUBLIC_API_URL;
   
   if (envUrl) {
+    // In development, Django's dev server typically runs HTTP-only.
+    // If an https URL was provided (common mistake), downgrade for local/LAN dev.
+    const isDevLike =
+      process.env.EXPO_PUBLIC_ENV === 'development' ||
+      process.env.EXPO_PUBLIC_ENV === 'preview' ||
+      Constants.appOwnership === 'expo';
+
+    if (isDevLike && envUrl.startsWith('https://') && envUrl.includes(':8000')) {
+      const downgraded = `http://${envUrl.slice('https://'.length)}`;
+      console.warn('⚠️ https detected for local dev API URL; downgrading to HTTP:', downgraded);
+      return downgraded;
+    }
+
     // If env var has localhost, warn for mobile devices
     if (envUrl.includes('localhost') && Constants.appOwnership === 'expo') {
       console.warn('⚠️ localhost detected in API URL, may not work on mobile device');
@@ -30,6 +43,17 @@ export const getWsUrl = (): string => {
   const envWsUrl = process.env.EXPO_PUBLIC_WS_URL;
   
   if (envWsUrl) {
+    const isDevLike =
+      process.env.EXPO_PUBLIC_ENV === 'development' ||
+      process.env.EXPO_PUBLIC_ENV === 'preview' ||
+      Constants.appOwnership === 'expo';
+
+    if (isDevLike && envWsUrl.startsWith('wss://') && envWsUrl.includes(':8000')) {
+      const downgraded = `ws://${envWsUrl.slice('wss://'.length)}`;
+      console.warn('⚠️ wss detected for local dev WS URL; downgrading to WS:', downgraded);
+      return downgraded;
+    }
+
     return envWsUrl;
   }
   

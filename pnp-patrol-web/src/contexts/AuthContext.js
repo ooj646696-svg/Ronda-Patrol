@@ -76,5 +76,6 @@ function parseJwtPayload(token) {
     userId: payload.user_id ?? payload.sub,
     role: payload.role || 'BRANCH_ADMIN',
     branchId: payload.branch_id ?? null,
+    branchName: payload.branch_name || null,
   };
 }

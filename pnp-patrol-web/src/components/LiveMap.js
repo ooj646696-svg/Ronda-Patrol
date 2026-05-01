@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Polyline, Popup, GeoJSON, useMap } fro
 import L from 'leaflet';
 import * as ronda from '../api/ronda';
 import { useAuth } from '../contexts/AuthContext';
+import { reverseGeocode, getShortLocationName } from '../utils/geocoding';
 import 'leaflet/dist/leaflet.css';
 import './LiveMap.css';
 
@@ -70,6 +71,35 @@ function getDriverColorIndex(driverName) {
     hash = driverName.charCodeAt(i) + ((hash << 5) - hash);
   }
   return Math.abs(hash) % DRIVER_COLORS.length;
+}
+
+// Component to display location name with geocoding for sidebar
+function SidebarLocationName({ latitude, longitude }) {
+  const [locationName, setLocationName] = useState('Locating...');
+
+  useEffect(() => {
+    if (!latitude || !longitude) {
+      setLocationName('No location');
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchLocation = async () => {
+      const address = await reverseGeocode(latitude, longitude);
+      if (!cancelled) {
+        setLocationName(getShortLocationName(address));
+      }
+    };
+
+    fetchLocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [latitude, longitude]);
+
+  return <span className="sidebar-location">{locationName}</span>;
 }
 
 // Create custom marker icon with driver initials
@@ -1033,8 +1063,13 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
                   <div className="driver-info">
                     <div className="driver-name">{loc.driver}</div>
                     <div className="driver-details">
-                      {getVehicleIcon(loc.vehicle)} {loc.vehicle} — {loc.branch}
+                      {getVehicleIcon(loc.vehicle)} {loc.vehicle} — {loc.branch_name || loc.branch}
                     </div>
+                    {loc.latitude && loc.longitude && (
+                      <div className="driver-location">
+                        <SidebarLocationName latitude={loc.latitude} longitude={loc.longitude} />
+                      </div>
+                    )}
                   </div>
                 </div>
 

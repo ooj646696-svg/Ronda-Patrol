@@ -11,6 +11,7 @@ import { useLocation } from '../src/hooks/useLocation';
 import { EmergencyBanner } from '../src/components/EmergencyBanner';
 import { EmergencyOverlay } from '../src/components/EmergencyOverlay';
 import { useEmergency } from '../src/contexts/EmergencyContext';
+import { reverseGeocode, formatLocationName, getShortLocationName, GeocodedAddress } from '../src/services/geocoding';
 
 export default function EmergencyScreen() {
   const router = useRouter();
@@ -21,12 +22,33 @@ export default function EmergencyScreen() {
   
   const { currentLocation, startTracking, stopTracking } = useLocation();
   const [sending, setSending] = useState(false);
+  const [locationName, setLocationName] = useState<string>('Locating...');
+  const [addressData, setAddressData] = useState<GeocodedAddress | null>(null);
   const { triggerEmergency } = useEmergency();
 
   useEffect(() => {
     startTracking();
     return () => stopTracking();
   }, []);
+
+  // Reverse geocode location when coordinates change
+  useEffect(() => {
+    const latitude = currentLocation?.latitude || paramLat;
+    const longitude = currentLocation?.longitude || paramLon;
+
+    if (latitude && longitude) {
+      const fetchLocationName = async () => {
+        const address = await reverseGeocode(latitude, longitude);
+        if (address) {
+          setAddressData(address);
+          setLocationName(getShortLocationName(address));
+        } else {
+          setLocationName('Location unavailable');
+        }
+      };
+      fetchLocationName();
+    }
+  }, [currentLocation?.latitude, currentLocation?.longitude, paramLat, paramLon]);
 
   const handleEmergency = async (type: 'EMERGENCY' | 'ASSISTANCE') => {
     const latitude = currentLocation?.latitude || paramLat;
@@ -42,52 +64,35 @@ export default function EmergencyScreen() {
       return;
     }
 
-    const title = type === 'EMERGENCY' ? 'Confirm Emergency' : 'Confirm Assistance Request';
-    const message = type === 'EMERGENCY' 
-      ? 'This will immediately notify your branch admin and nearby personnel. Are you sure?' 
-      : 'This will notify your branch admin that you need assistance. Continue?';
-
-    Alert.alert(
-      title,
-      message,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: type === 'EMERGENCY' ? 'SEND EMERGENCY' : 'Request Assistance',
-          style: type === 'EMERGENCY' ? 'destructive' : 'default',
-          onPress: async () => {
-            try {
-              setSending(true);
-              
-              // Trigger visual emergency indicators
-              if (sessionId) {
-                triggerEmergency(type, sessionId, type === 'EMERGENCY' ? 'Emergency alert triggered by driver' : 'Assistance requested by driver');
-              }
-              
-              await emergencyApi.createEmergencyAlert({
-                session: sessionId,
-                type,
-                latitude,
-                longitude,
-                description: type === 'EMERGENCY' ? 'Emergency alert triggered by driver' : 'Assistance requested by driver',
-              });
-              Alert.alert(
-                type === 'EMERGENCY' ? 'Emergency Reported' : 'Assistance Requested',
-                type === 'EMERGENCY'
-                  ? 'Incident reported. Help is on the way. Stay calm and stay safe.'
-                  : 'Your branch admin has been notified of your assistance request.',
-                [{ text: 'OK', onPress: () => router.back() }]
-              );
-            } catch (error) {
-              console.error('Failed to send emergency:', error);
-              Alert.alert('Error', 'Failed to send alert. Please try again or call directly.');
-            } finally {
-              setSending(false);
-            }
-          },
-        },
-      ]
-    );
+    // Send emergency immediately - no confirmation for safety
+    try {
+      setSending(true);
+      
+      // Trigger visual emergency indicators
+      if (sessionId) {
+        triggerEmergency(type, sessionId, type === 'EMERGENCY' ? 'Emergency alert triggered by driver' : 'Assistance requested by driver');
+      }
+      
+      await emergencyApi.createEmergencyAlert({
+        session: sessionId,
+        type,
+        latitude,
+        longitude,
+        description: type === 'EMERGENCY' ? 'Emergency alert triggered by driver' : 'Assistance requested by driver',
+      });
+      Alert.alert(
+        type === 'EMERGENCY' ? 'Emergency Reported' : 'Assistance Requested',
+        type === 'EMERGENCY'
+          ? 'Incident reported. Help is on the way. Stay calm and stay safe.'
+          : 'Your branch admin has been notified of your assistance request.',
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    } catch (error) {
+      console.error('Failed to send emergency:', error);
+      Alert.alert('Error', 'Failed to send alert. Please try again or call directly.');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -109,6 +114,9 @@ export default function EmergencyScreen() {
         <Text style={styles.locationLabel}>Your Current Location</Text>
         {currentLocation ? (
           <>
+            <Text style={styles.locationName} numberOfLines={2}>
+              {locationName}
+            </Text>
             <Text style={styles.locationCoords}>
               {currentLocation.latitude.toFixed(6)}, {currentLocation.longitude.toFixed(6)}
             </Text>
@@ -202,11 +210,18 @@ const styles = StyleSheet.create({
     color: '#888',
     marginBottom: 8,
   },
-  locationCoords: {
-    fontSize: 16,
+  locationName: {
+    fontSize: 18,
     color: '#fff',
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  locationCoords: {
+    fontSize: 13,
+    color: '#888',
     fontFamily: 'monospace',
-    fontWeight: '600',
+    fontWeight: '500',
   },
   locationAccuracy: {
     fontSize: 12,

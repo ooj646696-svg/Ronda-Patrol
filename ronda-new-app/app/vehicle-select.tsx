@@ -7,11 +7,13 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/hooks/useAuth';
+import { useTheme } from '../src/theme/ThemeProvider';
 import { vehiclesApi } from '../src/api/vehicles';
 
 export default function VehicleSelectScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const { colors, theme } = useTheme();
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedVehicle, setSelectedVehicle] = useState<any>(null);
@@ -52,22 +54,22 @@ export default function VehicleSelectScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <StatusBar barStyle="light-content" backgroundColor="#0b0b0b" />
-        <ActivityIndicator size="large" color="#2d8c4c" />
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+        <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
+        <ActivityIndicator size="large" color={colors.primary} />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor="#0b0b0b" />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backButton}>← Back</Text>
+          <Text style={[styles.backButton, { color: colors.primary }]}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Select Vehicle</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Select Vehicle</Text>
         <View style={{ width: 50 }} />
       </View>
 
@@ -75,10 +77,10 @@ export default function VehicleSelectScreen() {
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {vehicles.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
               {user?.branchId == null ? 'No Branch Assigned' : 'No Vehicles Available'}
             </Text>
-            <Text style={styles.emptyText}>
+            <Text style={[styles.emptyText, { color: colors.mutedText }]}>
               {user?.branchId == null
                 ? 'Please contact your administrator to assign you to a branch.'
                 : 'There are no vehicles registered for your branch. Please contact your administrator.'}
@@ -90,13 +92,14 @@ export default function VehicleSelectScreen() {
               key={vehicle.id}
               style={[
                 styles.vehicleCard,
-                selectedVehicle?.id === vehicle.id && styles.selectedCard,
+                { backgroundColor: colors.card, borderColor: colors.border },
+                selectedVehicle?.id === vehicle.id && [styles.selectedCard, { borderColor: colors.primary }],
               ]}
               onPress={() => setSelectedVehicle(vehicle)}
             >
               <View style={styles.vehicleInfo}>
-                <Text style={styles.plateNumber}>{vehicle.plate_number}</Text>
-                <Text style={styles.vehicleName}>{vehicle.name || 'Unassigned'}</Text>
+                <Text style={[styles.plateNumber, { color: colors.text }]}>{vehicle.plate_number}</Text>
+                <Text style={[styles.vehicleName, { color: colors.mutedText }]}>{vehicle.name || 'Unassigned'}</Text>
               </View>
               <View style={[
                 styles.checkmark,
@@ -112,11 +115,16 @@ export default function VehicleSelectScreen() {
       {/* Continue Button */}
       <View style={styles.footer}>
         <TouchableOpacity
-          style={[styles.button, !selectedVehicle && styles.buttonDisabled]}
+          style={[
+            styles.continueButton,
+            { backgroundColor: selectedVehicle ? colors.primary : colors.border },
+          ]}
           onPress={handleContinue}
           disabled={!selectedVehicle}
         >
-          <Text style={styles.buttonText}>Continue</Text>
+          <Text style={[styles.continueButtonText, { color: selectedVehicle ? '#fff' : colors.mutedText }]}>
+            Continue
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -126,7 +134,6 @@ export default function VehicleSelectScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0b0b0b',
   },
   header: {
     flexDirection: 'row',
@@ -136,17 +143,14 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
   },
   backButton: {
     fontSize: 16,
-    color: '#2d8c4c',
     fontWeight: '600',
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#fff',
   },
   content: {
     flex: 1,
@@ -164,12 +168,10 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#fff',
     marginBottom: 8,
   },
   emptyText: {
     fontSize: 14,
-    color: '#888',
     textAlign: 'center',
     paddingHorizontal: 20,
   },
@@ -177,15 +179,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#1a1a1a',
     borderRadius: 12,
     padding: 16,
     borderWidth: 2,
     borderColor: 'transparent',
   },
   selectedCard: {
-    borderColor: '#2d8c4c',
-    backgroundColor: '#1a2a1a',
+    borderWidth: 2,
   },
   vehicleInfo: {
     flex: 1,
@@ -193,23 +193,20 @@ const styles = StyleSheet.create({
   plateNumber: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#fff',
   },
   vehicleName: {
     fontSize: 14,
-    color: '#888',
     marginTop: 4,
   },
   checkmark: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#333',
     justifyContent: 'center',
     alignItems: 'center',
   },
   checkmarkSelected: {
-    backgroundColor: '#2d8c4c',
+    // Visual styling for selected checkmark
   },
   checkmarkText: {
     color: '#fff',
@@ -219,19 +216,13 @@ const styles = StyleSheet.create({
   footer: {
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: '#333',
   },
-  button: {
-    backgroundColor: '#2d8c4c',
+  continueButton: {
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
   },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonText: {
-    color: '#fff',
+  continueButtonText: {
     fontSize: 16,
     fontWeight: '600',
   },

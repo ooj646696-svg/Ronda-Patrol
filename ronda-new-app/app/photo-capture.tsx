@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../src/hooks/useAuth';
 import { useSession } from '../src/hooks/useSession';
+import { useTheme } from '../src/theme/ThemeProvider';
 import { photosApi } from '../src/api/photos';
 import { cameraService } from '../src/services/camera';
 import { PhotoData, ShotType, PhotoType } from '../src/types';
@@ -15,6 +16,7 @@ import { PhotoData, ShotType, PhotoType } from '../src/types';
 export default function PhotoCaptureScreen() {
   const { user } = useAuth();
   const { startSession, stopSession } = useSession();
+  const { colors, theme } = useTheme();
   const router = useRouter();
   const params = useLocalSearchParams();
   const vehicleId = params.vehicleId ? parseInt(params.vehicleId as string) : undefined;
@@ -121,9 +123,9 @@ export default function PhotoCaptureScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <StatusBar barStyle="light-content" backgroundColor="#0b0b0b" />
-        <ActivityIndicator size="large" color="#2d8c4c" />
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+        <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
+        <ActivityIndicator size="large" color={colors.primary} />
       </SafeAreaView>
     );
   }
@@ -133,23 +135,23 @@ export default function PhotoCaptureScreen() {
   const isComplete = completedCount === totalCount;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor="#0b0b0b" />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backButton}>← Back</Text>
+          <Text style={[styles.backButton, { color: colors.primary }]}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>{isPostShift ? 'Post-Shift Photos' : 'Pre-Shift Photos'}</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{isPostShift ? 'Post-Shift Photos' : 'Pre-Shift Photos'}</Text>
         <View style={{ width: 50 }} />
       </View>
 
       {/* Progress */}
       <View style={styles.progressContainer}>
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${(completedCount / totalCount) * 100}%` }]} />
+        <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+          <View style={[styles.progressFill, { width: `${(completedCount / totalCount) * 100}%`, backgroundColor: colors.primary }]} />
         </View>
-        <Text style={styles.progressText}>{completedCount} / {totalCount} photos</Text>
+        <Text style={[styles.progressText, { color: colors.text }]}>{completedCount} / {totalCount} photos</Text>
       </View>
 
       {/* Photo List */}
@@ -161,18 +163,22 @@ export default function PhotoCaptureScreen() {
           return (
             <TouchableOpacity
               key={shotType}
-              style={[styles.photoCard, isCaptured && styles.photoCardCaptured]}
+              style={[
+                styles.photoCard, 
+                { backgroundColor: colors.card, borderColor: colors.border },
+                isCaptured && [styles.photoCardCaptured, { borderColor: colors.primary }]
+              ]}
               onPress={() => handleTakePhoto(shotType)}
             >
               {isCaptured ? (
                 <View style={styles.capturedView}>
-                  <Text style={styles.checkIcon}>✓</Text>
-                  <Text style={styles.photoLabel}>{formatShotType(shotType)}</Text>
+                  <Text style={[styles.checkIcon, { color: colors.primary }]}>✓</Text>
+                  <Text style={[styles.photoLabel, { color: colors.text }]}>{formatShotType(shotType)}</Text>
                 </View>
               ) : (
                 <View style={styles.uncapturedView}>
-                  <Text style={styles.cameraIcon}>📷</Text>
-                  <Text style={styles.photoLabel}>{formatShotType(shotType)}</Text>
+                  <Text style={[styles.photoIcon, { color: colors.mutedText }]}>📷</Text>
+                  <Text style={[styles.photoLabel, { color: colors.text }]}>{formatShotType(shotType)}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -181,16 +187,22 @@ export default function PhotoCaptureScreen() {
       </ScrollView>
 
       {/* Footer */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { borderTopColor: colors.border }]}>
         <TouchableOpacity
-          style={[styles.button, !isComplete && styles.buttonDisabled, isPostShift && styles.stopButton]}
+          style={[
+            styles.button, 
+            { backgroundColor: isComplete ? (isPostShift ? '#ff6b6b' : colors.primary) : colors.border },
+            !isComplete && styles.buttonDisabled
+          ]}
           onPress={handleComplete}
           disabled={!isComplete || uploading}
         >
           {uploading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={isComplete ? '#fff' : colors.mutedText} />
           ) : (
-            <Text style={styles.buttonText}>{isPostShift ? 'End Shift' : 'Start Patrol'}</Text>
+            <Text style={[styles.buttonText, { color: isComplete ? '#fff' : colors.mutedText }]}>
+              {isPostShift ? 'End Shift' : 'Start Patrol'}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
@@ -217,7 +229,6 @@ function formatShotType(shotType: ShotType): string {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0b0b0b',
   },
   header: {
     flexDirection: 'row',
@@ -227,37 +238,30 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
   },
   backButton: {
     fontSize: 16,
-    color: '#2d8c4c',
     fontWeight: '600',
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#fff',
   },
   progressContainer: {
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
   },
   progressBar: {
     height: 4,
-    backgroundColor: '#333',
     borderRadius: 2,
     marginBottom: 8,
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#2d8c4c',
     borderRadius: 2,
   },
   progressText: {
     fontSize: 14,
-    color: '#888',
     textAlign: 'center',
   },
   content: {
@@ -270,15 +274,12 @@ const styles = StyleSheet.create({
   photoCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a1a1a',
     borderRadius: 12,
     padding: 20,
     borderWidth: 2,
-    borderColor: '#333',
   },
   photoCardCaptured: {
-    borderColor: '#2d8c4c',
-    backgroundColor: '#1a2a1a',
+    // Visual styling for captured photo card
   },
   capturedView: {
     flexDirection: 'row',
@@ -290,25 +291,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
-  checkIcon: {
+  photoIcon: {
     fontSize: 24,
-    color: '#2d8c4c',
   },
-  cameraIcon: {
+  checkIcon: {
     fontSize: 24,
   },
   photoLabel: {
     fontSize: 16,
-    color: '#fff',
     fontWeight: '600',
   },
   footer: {
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: '#333',
   },
   button: {
-    backgroundColor: '#2d8c4c',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
@@ -316,11 +313,7 @@ const styles = StyleSheet.create({
   buttonDisabled: {
     opacity: 0.5,
   },
-  stopButton: {
-    backgroundColor: '#ff6b6b',
-  },
   buttonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },

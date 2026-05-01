@@ -2,7 +2,7 @@
  * Home/Patrol Screen
  * Main screen with map view and session controls
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Circle } from 'react-native-maps';
@@ -16,8 +16,12 @@ import { EmergencyOverlay } from '../../src/components/EmergencyOverlay';
 import { useEmergency } from '../../src/contexts/EmergencyContext';
 import { useNetworkConnectivity } from '../../src/services/networkConnectivity';
 import { offlineGpsQueueService } from '../../src/services/offlineGpsQueue';
+import { useTheme } from '../../src/theme/ThemeProvider';
+import { reverseGeocode, getShortLocationName, GeocodedAddress } from '../../src/services/geocoding';
 
 export default function HomeScreen() {
+  const mapRef = useRef<MapView>(null);
+  const { colors, theme } = useTheme();
   const { user, logout } = useAuth();
   const { session, hasActiveSession, startSession, stopSession, loading } = useSession();
   const { currentLocation, startTracking, stopTracking, startBackgroundTracking, stopBackgroundTracking, isBackgroundTracking } = useLocation();
@@ -26,6 +30,8 @@ export default function HomeScreen() {
   const { triggerEmergency } = useEmergency();
   const { isOnline, isOffline } = useNetworkConnectivity();
   const [offlineQueueStats, setOfflineQueueStats] = useState({ totalEntries: 0, isOnline: true, isSyncing: false });
+  const [locationName, setLocationName] = useState<string>('Locating...');
+  const [addressData, setAddressData] = useState<GeocodedAddress | null>(null);
 
   const mapRegion = useMemo(() => ({
     latitude: currentLocation?.latitude || 14.5995,
@@ -91,6 +97,22 @@ export default function HomeScreen() {
     };
   }, [hasActiveSession, session, startTracking, stopTracking, startBackgroundTracking, stopBackgroundTracking]);
 
+  // Reverse geocode location when coordinates change
+  useEffect(() => {
+    if (currentLocation) {
+      const fetchLocationName = async () => {
+        const address = await reverseGeocode(currentLocation.latitude, currentLocation.longitude);
+        if (address) {
+          setAddressData(address);
+          setLocationName(getShortLocationName(address));
+        } else {
+          setLocationName('Location unavailable');
+        }
+      };
+      fetchLocationName();
+    }
+  }, [currentLocation?.latitude, currentLocation?.longitude]);
+
   // Send GPS data to backend when location updates
   useEffect(() => {
     if (hasActiveSession && session && currentLocation) {
@@ -154,132 +176,170 @@ export default function HomeScreen() {
     } as any);
   };
 
+  const handleLogout = () => {
+    Alert.alert(
+      'Confirm Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: () => {
+            logout();
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const handleCenterLocation = () => {
+    if (currentLocation && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }, 500);
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor="#0b0b0b" />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <EmergencyBanner />
       <EmergencyOverlay />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Hello, {user?.username}</Text>
-          <Text style={styles.status}>
-            {hasActiveSession ? 'On Patrol' : 'Off Duty'}
-          </Text>
-          {hasActiveSession && isBackgroundTracking && (
-            <Text style={styles.backgroundStatus}>📍 Background GPS Active</Text>
-          )}
-          {isOffline && (
-            <Text style={styles.offlineStatus}>📵 Offline Mode</Text>
-          )}
-          {offlineQueueStats.totalEntries > 0 && (
-            <Text style={styles.queueStatus}>
-              📦 {offlineQueueStats.totalEntries} GPS points queued
-              {offlineQueueStats.isSyncing && ' (syncing...)'}
-            </Text>
-          )}
-        </View>
-        <TouchableOpacity onPress={logout} style={styles.logoutButton}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-      </View>
 
       {/* Main Content */}
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        {hasActiveSession ? (
-          // Active Session View
-          <View style={styles.sessionCard}>
-            <Text style={styles.sessionTitle}>Active Patrol Session</Text>
-            <View style={styles.sessionInfo}>
-              <Text style={styles.sessionLabel}>Session ID:</Text>
-              <Text style={styles.sessionValue}>#{session?.id}</Text>
-            </View>
-            <View style={styles.sessionInfo}>
-              <Text style={styles.sessionLabel}>Started:</Text>
-              <Text style={styles.sessionValue}>
-                {session?.start_time ? new Date(session.start_time).toLocaleTimeString() : 'N/A'}
-              </Text>
-            </View>
-            <View style={styles.sessionInfo}>
-              <Text style={styles.sessionLabel}>Vehicle:</Text>
-              <Text style={styles.sessionValue}>{session?.vehicle_plate || 'N/A'}</Text>
-            </View>
-
-            {/* Map View */}
-            <View style={styles.mapContainer}>
-              <MapView
-                style={styles.map}
-                region={mapRegion}
-                showsUserLocation={true}
-                followsUserLocation={true}
-                showsMyLocationButton={true}
-                showsCompass={true}
-              >
-                {currentLocation && (
-                  <>
-                    <Marker
-                      coordinate={{
-                        latitude: currentLocation.latitude,
-                        longitude: currentLocation.longitude,
-                      }}
-                      title="Your Location"
-                      description={`Accuracy: ${currentLocation.accuracy?.toFixed(1) || 'N/A'}m`}
-                    />
-                    {currentLocation.accuracy && (
-                      <Circle
-                        center={{
-                          latitude: currentLocation.latitude,
-                          longitude: currentLocation.longitude,
-                        }}
-                        radius={currentLocation.accuracy}
-                        fillColor="rgba(45, 140, 76, 0.2)"
-                        strokeColor="rgba(45, 140, 76, 0.5)"
-                        strokeWidth={2}
-                      />
-                    )}
-                  </>
+      {hasActiveSession ? (
+        // Active Session View - Jogging Tracker Style (Full Screen Map)
+        <View style={styles.fullScreenMapContainer}>
+          {/* Full Screen Map */}
+          <MapView
+            ref={mapRef}
+            style={styles.fullScreenMap}
+            region={mapRegion}
+            showsUserLocation={true}
+            followsUserLocation={true}
+            showsMyLocationButton={false}
+            showsCompass={true}
+          >
+            {currentLocation && (
+              <>
+                <Marker
+                  coordinate={{
+                    latitude: currentLocation.latitude,
+                    longitude: currentLocation.longitude,
+                  }}
+                  title="Your Location"
+                  description={`Accuracy: ${currentLocation.accuracy?.toFixed(1) || 'N/A'}m`}
+                />
+                {currentLocation.accuracy && (
+                  <Circle
+                    center={{
+                      latitude: currentLocation.latitude,
+                      longitude: currentLocation.longitude,
+                    }}
+                    radius={currentLocation.accuracy}
+                    fillColor="rgba(45, 140, 76, 0.2)"
+                    strokeColor="rgba(45, 140, 76, 0.5)"
+                    strokeWidth={2}
+                  />
                 )}
-              </MapView>
+              </>
+            )}
+          </MapView>
 
-              {/* Floating Emergency Button */}
-              <TouchableOpacity style={styles.emergencyButtonFloating} onPress={handleEmergency}>
-                <Text style={styles.emergencyButtonText}>SOS</Text>
-              </TouchableOpacity>
-
-              {currentLocation && (
-                <View style={styles.mapOverlay}>
-                  <Text style={styles.mapCoords}>
-                    {currentLocation.latitude.toFixed(6)}, {currentLocation.longitude.toFixed(6)}
-                  </Text>
-                </View>
+          {/* Floating Top Bar - Status & End Shift */}
+          <View style={styles.floatingTopBar}>
+            <View>
+              <Text style={[styles.greetingText, { color: colors.text }]}>Hi, {user?.username || 'Driver'}!</Text>
+              <View style={styles.patrolStatusBadge}>
+                <View style={styles.pulseDot} />
+                <Text style={styles.patrolStatusText}>Patrol Active</Text>
+              </View>
+              {isBackgroundTracking && <Text style={styles.statusText}>Background Tracking Active</Text>}
+              {isOffline && <Text style={styles.statusText}>Offline Mode</Text>}
+              {offlineQueueStats.totalEntries > 0 && (
+                <Text style={styles.statusText}>
+                  Queue: {offlineQueueStats.totalEntries} {offlineQueueStats.isSyncing ? '(Syncing...)' : ''}
+                </Text>
               )}
             </View>
-
-            <TouchableOpacity
-              style={[styles.button, styles.stopButton]}
-              onPress={handleStopShift}
-              disabled={loading}
-            >
-              <Text style={styles.buttonText}>End Shift</Text>
+            <TouchableOpacity style={styles.endShiftButton} onPress={handleStopShift}>
+              <Text style={styles.endShiftButtonText}>End Shift</Text>
             </TouchableOpacity>
           </View>
-        ) : (
-          // No Active Session View
-          <View style={styles.noSessionCard}>
-            <Text style={styles.noSessionTitle}>Ready to Patrol</Text>
-            <Text style={styles.noSessionText}>
+
+          {/* Floating Bottom Info Panel - Single Rectangle */}
+          <View style={styles.bottomInfoPanel}>
+            {/* Location Name */}
+            {currentLocation && (
+              <Text style={styles.locationNameText} numberOfLines={1}>
+                {locationName}
+              </Text>
+            )}
+
+            {/* Info Row */}
+            <View style={styles.infoRow}>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>Vehicle</Text>
+                <Text style={styles.infoValue}>{session?.vehicle_plate || 'N/A'}</Text>
+              </View>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>Started</Text>
+                <Text style={styles.infoValue}>
+                  {session?.start_time ? new Date(session.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}
+                </Text>
+              </View>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>Duration</Text>
+                <Text style={styles.infoValue}>
+                  {session?.start_time
+                    ? (() => {
+                        const diff = Date.now() - new Date(session.start_time).getTime();
+                        const hours = Math.floor(diff / 3600000);
+                        const mins = Math.floor((diff % 3600000) / 60000);
+                        return `${hours}h ${mins}m`;
+                      })()
+                    : '0h 0m'}
+                </Text>
+              </View>
+            </View>
+
+            {/* SOS Button */}
+            <TouchableOpacity style={styles.sosButton} onPress={handleEmergency}>
+              <Text style={styles.sosButtonText}>SOS</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Custom Location Button - Top Right */}
+          <TouchableOpacity style={styles.locationButton} onPress={handleCenterLocation}>
+            <Text style={styles.locationButtonText}>📍</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        // No Active Session View
+        <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+          <View style={[styles.noSessionCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.greetingText, { color: colors.text }]}>Hi, {user?.username || 'Driver'}!</Text>
+            <Text style={[styles.noSessionTitle, { color: colors.text }]}>Ready to Start Patrol?</Text>
+            <Text style={[styles.noSessionText, { color: colors.mutedText }]}>
               Select a vehicle and complete pre-shift photos to begin your patrol session.
             </Text>
             <TouchableOpacity
-              style={styles.button}
+              style={[styles.button, { backgroundColor: colors.primary }]}
               onPress={handleStartShift}
             >
-              <Text style={styles.buttonText}>Start Shift</Text>
+              <Text style={[styles.buttonText, { color: '#fff' }]}>Start Shift</Text>
             </TouchableOpacity>
           </View>
-        )}
-      </ScrollView>
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -289,158 +349,173 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0b0b0b',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  greeting: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  status: {
-    fontSize: 14,
-    color: '#888',
-    marginTop: 4,
-  },
-  backgroundStatus: {
-    fontSize: 12,
-    color: '#2d8c4c',
-    marginTop: 2,
-    fontWeight: '600',
-  },
-  offlineStatus: {
-    fontSize: 12,
-    color: '#ff9500',
-    marginTop: 2,
-    fontWeight: '600',
-  },
-  queueStatus: {
-    fontSize: 11,
-    color: '#888',
-    marginTop: 2,
-    fontWeight: '500',
-  },
-  logoutButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#333',
-  },
-  logoutText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
   content: {
     flex: 1,
   },
   contentContainer: {
     padding: 20,
-  },
-  sessionCard: {
-    gap: 16,
-  },
-  sessionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  sessionInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  sessionLabel: {
-    fontSize: 14,
-    color: '#888',
-  },
-  sessionValue: {
-    fontSize: 14,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  mapContainer: {
-    height: 300,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  map: {
-    flex: 1,
-  },
-  mapOverlay: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  mapCoords: {
-    fontSize: 12,
-    color: '#fff',
-    fontFamily: 'monospace',
-  },
-  emergencyButtonFloating: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ff4444',
+    flexGrow: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  emergencyButtonText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#fff',
   },
   button: {
-    backgroundColor: '#2d8c4c',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
     borderRadius: 12,
-    paddingVertical: 16,
     alignItems: 'center',
-  },
-  stopButton: {
-    backgroundColor: '#ff6b6b',
+    marginTop: 16,
   },
   buttonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
   noSessionCard: {
-    gap: 16,
+    borderRadius: 16,
+    padding: 32,
     alignItems: 'center',
-    paddingVertical: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   noSessionTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#fff',
+    marginBottom: 12,
+    textAlign: 'center',
   },
   noSessionText: {
     fontSize: 16,
-    color: '#888',
     textAlign: 'center',
     lineHeight: 24,
+  },
+
+  // Jogging Tracker Style - Active Patrol
+  fullScreenMapContainer: {
+    flex: 1,
+  },
+  fullScreenMap: {
+    flex: 1,
+  },
+  floatingTopBar: {
+    position: 'absolute',
+    top: 10,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  greetingText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  patrolStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(45, 140, 76, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  pulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#fff',
+    marginRight: 8,
+  },
+  patrolStatusText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  statusText: {
+    color: '#2d8c4c',
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  endShiftButton: {
+    backgroundColor: '#ff4444',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  endShiftButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  bottomInfoPanel: {
+    position: 'absolute',
+    bottom: 20,
+    left: 16,
+    right: 16,
+    // backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#1b1b1b',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  locationNameText: {
+    color: '#1b1b1b',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 12,
+  },
+  infoItem: {
+    alignItems: 'center',
+  },
+  infoLabel: {
+    color: '#555',
+    fontSize: 11,
+    marginBottom: 4,
+  },
+  infoValue: {
+    color: '#1b1b1b',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sosButton: {
+    backgroundColor: '#ff4444',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  sosButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  locationButton: {
+    position: 'absolute',
+    bottom: 180,
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgb(255, 255, 255)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    // shadowColor: '#000',
+    // shadowOffset: { width: 0, height: 2 },
+    // shadowOpacity: 0.5,
+    // shadowRadius: 4,
+    // elevation: 5,
+  },
+  locationButtonText: {
+    fontSize: 20,
   },
 });

@@ -6,8 +6,10 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/hooks/useAuth';
+import { useTheme } from '../src/theme/ThemeProvider';
 
 export default function LoginScreen() {
+  const { colors } = useTheme();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,27 +46,34 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.content}>
         {/* Logo/Brand */}
         <View style={styles.logoContainer}>
-          <View style={styles.logo}>
-            <Text style={styles.logoText}>R</Text>
+          <View style={[styles.logo, { backgroundColor: colors.primary }]}>
+            <Text style={[styles.logoText, { color: colors.text }]}>R</Text>
           </View>
-          <Text style={styles.brandName}>R.O.N.D.A.</Text>
-          <Text style={styles.subtitle}>Patrol Monitoring</Text>
+          <Text style={[styles.brandName, { color: colors.text }]}>R.O.N.D.A.</Text>
+          <Text style={[styles.subtitle, { color: colors.mutedText }]}>Patrol Monitoring</Text>
         </View>
 
         {/* Login Form */}
         <View style={styles.form}>
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Username</Text>
+            <Text style={[styles.label, { color: colors.text }]}>Username</Text>
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.inputBackground,
+                  borderColor: colors.inputBorder,
+                  color: colors.text,
+                },
+              ]}
               placeholder="Enter your username"
-              placeholderTextColor="#999"
+              placeholderTextColor={colors.placeholder}
               value={username}
               onChangeText={setUsername}
               autoCapitalize="none"
@@ -74,11 +83,18 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password</Text>
+            <Text style={[styles.label, { color: colors.text }]}>Password</Text>
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.inputBackground,
+                  borderColor: colors.inputBorder,
+                  color: colors.text,
+                },
+              ]}
               placeholder="Enter your password"
-              placeholderTextColor="#999"
+              placeholderTextColor={colors.placeholder}
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -86,23 +102,23 @@ export default function LoginScreen() {
             />
           </View>
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
 
           <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
+            style={[styles.button, { backgroundColor: colors.primary }, loading && styles.buttonDisabled]}
             onPress={handleLogin}
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={colors.text} />
             ) : (
-              <Text style={styles.buttonText}>Sign In</Text>
+              <Text style={[styles.buttonText, { color: colors.text }]}>Sign In</Text>
             )}
           </TouchableOpacity>
         </View>
 
         {/* Footer */}
-        <Text style={styles.footer}>Driver App v1.0</Text>
+        <Text style={[styles.footer, { color: colors.mutedText }]}>Driver App v1.0</Text>
       </View>
     </KeyboardAvoidingView>
   );
@@ -111,7 +127,6 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0b0b0b',
   },
   content: {
     flex: 1,
@@ -127,7 +142,6 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#2d8c4c',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -135,17 +149,14 @@ const styles = StyleSheet.create({
   logoText: {
     fontSize: 48,
     fontWeight: '700',
-    color: '#fff',
   },
   brandName: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#fff',
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 16,
-    color: '#888',
   },
   form: {
     gap: 20,
@@ -156,26 +167,20 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#fff',
     marginLeft: 4,
   },
   input: {
-    backgroundColor: '#1a1a1a',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: '#fff',
     borderWidth: 1,
-    borderColor: '#333',
   },
   error: {
-    color: '#ff4444',
     fontSize: 14,
     textAlign: 'center',
   },
   button: {
-    backgroundColor: '#2d8c4c',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
@@ -185,13 +190,11 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   buttonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
   footer: {
     textAlign: 'center',
-    color: '#666',
     fontSize: 12,
     marginTop: 32,
   },

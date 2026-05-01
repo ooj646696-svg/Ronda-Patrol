@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import * as ronda from '../api/ronda';
+import { reverseGeocode, getShortLocationName } from '../utils/geocoding';
 import 'leaflet/dist/leaflet.css';
 import './RouteHistoryPage.css';
 
@@ -89,6 +90,64 @@ function createSpeedColoredSegments(points) {
 
 const DEFAULT_CENTER = [14.7269, 121.8656]; // Quezon Province center
 const DEFAULT_ZOOM = 9;
+
+// Component to display location name with geocoding for route playback
+function RouteLocationName({ latitude, longitude }) {
+  const [locationName, setLocationName] = useState('Locating...');
+
+  useEffect(() => {
+    if (!latitude || !longitude) {
+      setLocationName('No location');
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchLocation = async () => {
+      const address = await reverseGeocode(latitude, longitude);
+      if (!cancelled) {
+        setLocationName(getShortLocationName(address));
+      }
+    };
+
+    fetchLocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [latitude, longitude]);
+
+  return <span className="route-location-text">{locationName}</span>;
+}
+
+// Lighter version for map popups
+function RoutePopupLocationName({ latitude, longitude }) {
+  const [locationName, setLocationName] = useState('Locating...');
+
+  useEffect(() => {
+    if (!latitude || !longitude) {
+      setLocationName('No location');
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchLocation = async () => {
+      const address = await reverseGeocode(latitude, longitude);
+      if (!cancelled) {
+        setLocationName(getShortLocationName(address));
+      }
+    };
+
+    fetchLocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [latitude, longitude]);
+
+  return <span style={{ fontWeight: 500 }}>{locationName}</span>;
+}
 
 export function RouteHistoryPage() {
   const [sessions, setSessions] = useState([]);
@@ -391,6 +450,12 @@ export function RouteHistoryPage() {
                       {currentPosition.calculated_speed_kmh?.toFixed(1) || 0} km/h
                     </span>
                   </div>
+                  <div className="position-stat location-stat">
+                    <span className="position-label">Location:</span>
+                    <span className="position-value location-name">
+                      <RouteLocationName latitude={currentPosition.latitude} longitude={currentPosition.longitude} />
+                    </span>
+                  </div>
                   <div className="position-stat">
                     <span className="position-label">Coords:</span>
                     <span className="position-value coords">
@@ -486,6 +551,7 @@ export function RouteHistoryPage() {
                             <Popup>
                               <div className="marker-popup">
                                 <strong>📍 Current Position</strong><br />
+                                <RoutePopupLocationName latitude={currentPosition.latitude} longitude={currentPosition.longitude} /><br />
                                 Time: {formatTime(currentPosition.timestamp)}<br />
                                 Speed: <span style={{ color: getSpeedColor(currentPosition.calculated_speed_kmh) }}>
                                   {currentPosition.calculated_speed_kmh?.toFixed(1) || 0} km/h
