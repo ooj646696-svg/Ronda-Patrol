@@ -9,6 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { emergencyService } from '../../src/services/emergency';
 import { useLocation } from '../../src/hooks/useLocation';
 import { useTheme } from '../../src/theme/ThemeProvider';
+import { toastService } from '../../src/services/toast';
 import type { PingResponse } from '../../src/types';
 
 export default function PingResponseScreen() {
@@ -48,8 +49,13 @@ export default function PingResponseScreen() {
         } : undefined
       );
 
-      // If emergency response, show emergency mode
+      // Show appropriate toast notification
       if (response === 'Emergency') {
+        toastService.success('Emergency response sent! Help is on the way.', {
+          title: '🚨 Emergency Mode'
+        });
+        
+        // Still show the emergency alert for emphasis
         Alert.alert(
           'EMERGENCY MODE',
           'Emergency response sent! Help is on the way.',
@@ -62,13 +68,18 @@ export default function PingResponseScreen() {
           ],
           { cancelable: false }
         );
+      } else if (response === "I'm fine") {
+        toastService.success('Status updated: All clear!', {
+          title: '✅ Response Sent'
+        });
+      } else if (response === 'Needs assistance') {
+        toastService.warning('Assistance requested. Help is on the way.', {
+          title: '⚠️ Assistance Requested'
+        });
       } else {
-        Alert.alert('Response Sent', 'Your response has been recorded.', [
-          {
-            text: 'OK',
-            onPress: () => router.back(),
-          },
-        ]);
+        toastService.success('Your response has been recorded.', {
+          title: '✅ Response Sent'
+        });
       }
 
       if (success) {

@@ -12,6 +12,7 @@ import { EmergencyBanner } from '../src/components/EmergencyBanner';
 import { EmergencyOverlay } from '../src/components/EmergencyOverlay';
 import { useEmergency } from '../src/contexts/EmergencyContext';
 import { reverseGeocode, formatLocationName, getShortLocationName, GeocodedAddress } from '../src/services/geocoding';
+import { toastService } from '../src/services/toast';
 
 export default function EmergencyScreen() {
   const router = useRouter();
@@ -80,6 +81,18 @@ export default function EmergencyScreen() {
         longitude,
         description: type === 'EMERGENCY' ? 'Emergency alert triggered by driver' : 'Assistance requested by driver',
       });
+      // Show toast notification
+      if (type === 'EMERGENCY') {
+        toastService.success('Emergency alert sent! Help is on the way.', {
+          title: '🚨 Emergency Reported'
+        });
+      } else {
+        toastService.success('Assistance request sent. Your branch admin has been notified.', {
+          title: '⚠️ Assistance Requested'
+        });
+      }
+
+      // Show alert for emphasis
       Alert.alert(
         type === 'EMERGENCY' ? 'Emergency Reported' : 'Assistance Requested',
         type === 'EMERGENCY'

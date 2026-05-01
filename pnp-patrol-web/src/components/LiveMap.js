@@ -627,83 +627,54 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
                 icon={createDriverIcon(loc.driver, loc.vehicle, hasEmergency, hasAssistance, isOffline)}
               >
                 <Popup>
-                  <div className="marker-popup">
-                    {/* Emergency Status Banner - Most Prominent */}
-                    {incidents && incidents.filter(inc => inc.session === loc.session_id && inc.description?.includes('[EMERGENCY]')).length > 0 && (
-                      <div className="emergency-banner">
-                        <strong>EMERGENCY ALERT</strong>
-                        <span>Driver needs immediate help!</span>
+                  <div className="marker-popup popup-compact">
+                    {/* Status Banner */}
+                    {hasEmergency ? (
+                      <div className="status-banner emergency">
+                        🚨 <strong>EMERGENCY</strong>
                       </div>
-                    )}
-                    {incidents && incidents.filter(inc => inc.session === loc.session_id && inc.description?.includes('[ASSISTANCE]')).length > 0 && (
-                      <div className="assistance-banner">
-                        <strong>ASSISTANCE REQUESTED</strong>
-                        <span>Driver needs help</span>
+                    ) : hasAssistance ? (
+                      <div className="status-banner assistance">
+                        ⚠️ <strong>NEEDS ASSISTANCE</strong>
                       </div>
-                    )}
+                    ) : isOffline ? (
+                      <div className="status-banner offline">
+                        📵 <strong>OFFLINE</strong>
+                      </div>
+                    ) : null}
 
-                    <strong className="driver-name">{loc.driver}</strong>
-                    <div className="popup-info">
-                      {isOffline && <div className="offline-indicator">📵 <strong>OFFLINE</strong> - No recent GPS data</div>}
-                      {loc.vehicle} — {loc.branch}<br />
-                      {loc.timestamp ? new Date(loc.timestamp).toLocaleString() : '—'}<br />
-                      <strong>Coordinates:</strong><br />
-                      Lat: {loc.latitude?.toFixed(6) || 'N/A'}<br />
-                      Lng: {loc.longitude?.toFixed(6) || 'N/A'}<br />
-                      {loc.recent_points && loc.recent_points.length > 0 && (
-                        <>
-                          <br />Trail points: {loc.recent_points.length}
-                          {loc.recent_points.length > 1 && (
-                            <>
-                              <br />Distance: {calculateTrailDistance(loc.recent_points).toFixed(2)} km
-                            </>
-                          )}
-                        </>
-                      )}
+                    {/* Driver Info */}
+                    <div className="popup-header">
+                      <strong className="driver-name">{loc.driver}</strong>
+                      <span className="vehicle-info">{loc.vehicle} • {loc.branch}</span>
                     </div>
-                    
-                    {/* Ping Status */}
-                    {loc.recent_ping && (
-                      <div className="ping-status-section">
-                        <hr />
-                        <strong>Ping Status:</strong><br />
-                        {pingStatus === 'RESPONDED' ? (
-                          <>
-                            <span className="ping-badge success">Responded</span><br />
-                            {pingResponse === 'YES' && 'Driver is fine'}
-                            {pingResponse === 'NO' && 'Driver needs assistance'}
-                            {pingResponse === 'NEED_ASSISTANCE' && 'EMERGENCY: Help needed'}
-                            {loc.recent_ping.responded_at && (
-                              <><br /><small>at {new Date(loc.recent_ping.responded_at).toLocaleTimeString()}</small></>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <span className="ping-badge pending">Waiting for response...</span><br />
-                            <small>Sent {loc.recent_ping.sent_at ? new Date(loc.recent_ping.sent_at).toLocaleTimeString() : '—'}</small>
-                          </>
-                        )}
-                      </div>
-                    )}
-                    
-                    {/* Ping Button for Admins */}
+
+                    {/* Location Info */}
+                    <div className="popup-location">
+                      <span className="coords">
+                        {loc.latitude?.toFixed(4)}, {loc.longitude?.toFixed(4)}
+                      </span>
+                      <span className="timestamp">
+                        {loc.timestamp ? new Date(loc.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '—'}
+                      </span>
+                    </div>
+
+                                        
+                    {/* Ping Button */}
                     {isAdmin && (
-                      <div className="ping-action">
-                        <hr />
+                      <div className="popup-action">
                         {(!loc.recent_ping || pingStatus === 'RESPONDED') ? (
                           <button
-                            className="ping-btn"
+                            className="ping-btn-sm"
                             onClick={(e) => {
                               e.stopPropagation();
                               onPing && onPing(loc.driver_id, loc.driver);
                             }}
                           >
-                            Send Ping
+                            📍 Ping
                           </button>
                         ) : (
-                          <button className="ping-btn disabled" disabled>
-                            Waiting for response...
-                          </button>
+                          <span className="ping-waiting">⏳ Waiting...</span>
                         )}
                       </div>
                     )}

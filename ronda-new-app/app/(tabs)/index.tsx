@@ -18,6 +18,7 @@ import { useNetworkConnectivity } from '../../src/services/networkConnectivity';
 import { offlineGpsQueueService } from '../../src/services/offlineGpsQueue';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { reverseGeocode, getShortLocationName, GeocodedAddress } from '../../src/services/geocoding';
+import { toastService } from '../../src/services/toast';
 
 // Google Maps Dark Mode Style
 const darkMapStyle = [
@@ -115,12 +116,16 @@ export default function HomeScreen() {
   const [locationName, setLocationName] = useState<string>('Locating...');
   const [addressData, setAddressData] = useState<GeocodedAddress | null>(null);
 
-  const mapRegion = useMemo(() => ({
-    latitude: currentLocation?.latitude || 14.5995,
-    longitude: currentLocation?.longitude || 120.9842,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
-  }), [currentLocation?.latitude, currentLocation?.longitude]);
+  const mapRegion = useMemo(() => {
+    const region = {
+      latitude: currentLocation?.latitude || 13.9333, // Lucena City center
+      longitude: currentLocation?.longitude || 121.6167,
+      latitudeDelta: 0.8, // Quezon province view
+      longitudeDelta: 0.8,
+    };
+    console.log('Map region:', region);
+    return region;
+  }, [currentLocation]);
 
   useEffect(() => {
     if (session) {
@@ -246,6 +251,12 @@ export default function HomeScreen() {
 
   const handleStopShift = () => {
     if (!session) return;
+    
+    // Show toast notification
+    toastService.success('Ending shift...', {
+      title: '🛑 Shift Ending'
+    });
+    
     // Navigate to photo capture for post-shift snapshots first
     const vehicleId = typeof session.vehicle === 'number' ? session.vehicle : session.vehicle?.id;
     router.push({
@@ -321,13 +332,16 @@ export default function HomeScreen() {
           <MapView
             ref={mapRef}
             style={styles.fullScreenMap}
-            region={mapRegion}
+            initialRegion={{
+              latitude: 13.9333, // Lucena City center
+              longitude: 121.6167,
+              latitudeDelta: 0.8, // Quezon province view
+              longitudeDelta: 0.8,
+            }}
             showsUserLocation={true}
             followsUserLocation={true}
-            showsMyLocationButton={false}
-            showsCompass={true}
-            provider={PROVIDER_GOOGLE}
-            customMapStyle={theme === 'dark' ? darkMapStyle : []}
+            onMapReady={() => console.log('Map is ready!')}
+            onMapLoaded={() => console.log('Map loaded!')}
           >
             {currentLocation && (
               <>
