@@ -6,6 +6,21 @@ const ToastContext = createContext(null);
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
 
+  const removeToast = useCallback((id) => {
+    setToasts((prev) => {
+      const toast = prev.find((t) => t.id === id);
+      if (toast) {
+        toast.hiding = true;
+      }
+      return [...prev];
+    });
+
+    // Actually remove after animation
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 300);
+  }, []);
+
   const addToast = useCallback((message, options = {}) => {
     const id = Date.now() + Math.random();
     const toast = {
@@ -24,22 +39,7 @@ export function ToastProvider({ children }) {
     }, toast.duration);
 
     return id;
-  }, []);
-
-  const removeToast = useCallback((id) => {
-    setToasts((prev) => {
-      const toast = prev.find((t) => t.id === id);
-      if (toast) {
-        toast.hiding = true;
-      }
-      return [...prev];
-    });
-
-    // Actually remove after animation
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 300);
-  }, []);
+  }, [removeToast]);
 
   const success = useCallback((message, options = {}) => {
     return addToast(message, { ...options, type: 'success' });

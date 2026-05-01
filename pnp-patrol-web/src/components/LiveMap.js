@@ -194,29 +194,7 @@ function getCircularOffset(baseLat, baseLng, index, totalMarkers) {
   return [baseLat + latOffset, baseLng + lngOffset];
 }
 
-// Calculate total distance traveled in GPS trail (in km)
-function calculateTrailDistance(points) {
-  if (!points || points.length < 2) return 0;
-  let totalDistance = 0;
-  for (let i = 1; i < points.length; i++) {
-    const lat1 = points[i-1].latitude;
-    const lon1 = points[i-1].longitude;
-    const lat2 = points[i].latitude;
-    const lon2 = points[i].longitude;
     
-    // Haversine formula
-    const R = 6371; // Earth's radius in km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    totalDistance += R * c;
-  }
-  return totalDistance;
-}
-
 function FixLeafletIcons() {
   useEffect(() => {
     delete L.Icon.Default.prototype._getIconUrl;
@@ -569,7 +547,6 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
           
           // Determine ping status display
           const pingStatus = loc.recent_ping ? loc.recent_ping.status : null;
-          const pingResponse = loc.recent_ping ? loc.recent_ping.response : null;
 
           // Check for active incidents for this driver
           const driverEmergencies = incidents?.filter(inc =>
