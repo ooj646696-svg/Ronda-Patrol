@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
+import WebViewMap from '../../src/components/WebViewMap'; 
 import { useAuth } from '../../src/hooks/useAuth';
 import { useSession } from '../../src/hooks/useSession';
 import { useLocation } from '../../src/hooks/useLocation';
@@ -103,7 +103,7 @@ const darkMapStyle = [
 ];
 
 export default function HomeScreen() {
-  const mapRef = useRef<MapView>(null);
+  const webViewRef = useRef<any>(null);
   const { colors, theme } = useTheme();
   const { user, logout } = useAuth();
   const { session, hasActiveSession, startSession, stopSession, loading } = useSession();
@@ -304,14 +304,13 @@ export default function HomeScreen() {
       }
     }
     
-    if (currentLocation && mapRef.current) {
+    if (currentLocation && webViewRef.current) {
       console.log('Centering map to location:', currentLocation);
-      mapRef.current.animateToRegion({
-        latitude: currentLocation.latitude,
-        longitude: currentLocation.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      }, 500);
+      // Send centering message to WebView
+      webViewRef.current.postMessage(JSON.stringify({
+        type: 'centerLocation',
+        location: currentLocation
+      }));
     } else {
       console.log('Still no location available');
       Alert.alert('Location Error', 'No location data available. Please ensure location services are enabled.');
@@ -329,45 +328,11 @@ export default function HomeScreen() {
         // Active Session View - Jogging Tracker Style (Full Screen Map)
         <View style={styles.fullScreenMapContainer}>
           {/* Full Screen Map */}
-          <MapView
-            ref={mapRef}
-            style={styles.fullScreenMap}
-            initialRegion={{
-              latitude: 13.9333, // Lucena City center
-              longitude: 121.6167,
-              latitudeDelta: 0.8, // Quezon province view
-              longitudeDelta: 0.8,
-            }}
-            showsUserLocation={true}
-            followsUserLocation={true}
-            onMapReady={() => console.log('Map is ready!')}
-            onMapLoaded={() => console.log('Map loaded!')}
-          >
-            {currentLocation && (
-              <>
-                <Marker
-                  coordinate={{
-                    latitude: currentLocation.latitude,
-                    longitude: currentLocation.longitude,
-                  }}
-                  title="Your Location"
-                  description={`Accuracy: ${currentLocation.accuracy?.toFixed(1) || 'N/A'}m`}
-                />
-                {currentLocation.accuracy && (
-                  <Circle
-                    center={{
-                      latitude: currentLocation.latitude,
-                      longitude: currentLocation.longitude,
-                    }}
-                    radius={currentLocation.accuracy}
-                    fillColor="rgba(45, 140, 76, 0.2)"
-                    strokeColor="rgba(45, 140, 76, 0.5)"
-                    strokeWidth={2}
-                  />
-                )}
-              </>
-            )}
-          </MapView>
+          <WebViewMap
+            ref={webViewRef}
+            currentLocation={currentLocation}
+            onMapReady={() => console.log('WebView Map is ready!')}
+          />
 
           {/* Floating Top Bar - Status & End Shift */}
           <View style={styles.floatingTopBar}>
