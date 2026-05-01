@@ -205,7 +205,7 @@ export default function HomeScreen() {
     if (hasActiveSession && session && currentLocation) {
       const sendGpsData = async () => {
         try {
-          await gpsApi.create({
+          await gpsApi.createWithSnapping({
             session: session.id,
             latitude: currentLocation.latitude,
             longitude: currentLocation.longitude,

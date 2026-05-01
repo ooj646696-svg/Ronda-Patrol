@@ -87,6 +87,7 @@ export interface GPSCreateRequest {
   accuracy?: number;
   speed?: number;
   altitude?: number;
+  snapped_to_road?: boolean;
 }
 
 // Photo Types

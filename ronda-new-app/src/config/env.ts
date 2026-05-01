@@ -69,10 +69,15 @@ export const isDevelopment = (): boolean => {
   );
 };
 
+export const getOpenRouteServiceKey = (): string => {
+  return process.env.EXPO_PUBLIC_OPENROUTESERVICE_API_KEY || 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6Ijg2NTcwMDAxODc5NzRiMjY4MmMwZDczNzA3NTRmYWRlIiwiaCI6Im11cm11cjY0In0=';
+};
+
 export const config = {
   apiUrl: getApiBaseUrl(),
   wsUrl: getWsUrl(),
   isDev: isDevelopment(),
+  openRouteServiceKey: getOpenRouteServiceKey(),
 };
 
 console.log('🔗 [Config] API URL:', config.apiUrl);

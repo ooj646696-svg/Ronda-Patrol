@@ -36,7 +36,7 @@ ALLOWED_HOSTS = [
     h.strip()
     for h in os.environ.get(
         'ALLOWED_HOSTS',
-        'localhost, 127.0.0.1, 192.168.18.12, 192.168.8.156 ,192.168.101.82'
+        'localhost, 127.0.0.1, 192.168.18.12, 192.168.8.156 ,192.168.101.82, ronda-patrol-monitoring-web-app.onrender.com'
     ).split(',')
     if h.strip()
 ]
