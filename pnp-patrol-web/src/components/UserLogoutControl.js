@@ -10,7 +10,7 @@ const UserLogoutControl = ({ user, onLogoutSuccess, onLogoutError }) => {
     try {
       console.log('🔄 Attempting to logout user:', user);
       const response = await api.post(`/users/${user.id}/force_logout/`);
-      console.log('✅ Logout successful:', response.data);
+      console.log(' Logout successful:', response.data);
       onLogoutSuccess(response.data);
       setShowConfirm(false);
     } catch (error) {

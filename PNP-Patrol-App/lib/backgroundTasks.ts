@@ -20,7 +20,7 @@ export async function initializeBackgroundTracking(): Promise<void> {
     // Start periodic session check
     startSessionCheck();
     
-    console.log('✅ Background tracking initialized');
+    console.log(' Background tracking initialized');
   } catch (error) {
     console.error('❌ Failed to initialize background tracking:', error);
   }
@@ -40,7 +40,7 @@ export async function cleanupBackgroundTracking(): Promise<void> {
       subscription.remove();
     }
     
-    console.log('✅ Background tracking cleaned up');
+    console.log(' Background tracking cleaned up');
   } catch (error) {
     console.error('❌ Failed to cleanup background tracking:', error);
   }
@@ -76,7 +76,7 @@ async function checkActiveSession(): Promise<void> {
     const activeSession = sessions.find((s: any) => s.driver_id === parseInt(userId) && s.is_active);
     
     if (activeSession) {
-      console.log('✅ Active session confirmed for user:', userId);
+      console.log(' Active session confirmed for user:', userId);
     } else {
       console.log('⚠️ No active session found for user:', userId);
     }

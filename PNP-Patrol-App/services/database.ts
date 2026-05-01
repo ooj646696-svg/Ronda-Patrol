@@ -77,7 +77,7 @@ class DatabaseService {
       
       this.nextId = Math.max(maxPhotoId, maxGroupId, maxQueuedId) + 1;
       
-      console.log('✅ AsyncStorage database fallback initialized successfully');
+      console.log(' AsyncStorage database fallback initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize database:', error);
       throw error;

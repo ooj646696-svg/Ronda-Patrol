@@ -17,23 +17,26 @@
  }
 
  @media (max-width: 900px) {
-   .users-layout {
-     grid-template-columns: 1fr;
-   }
- }
+  .users-layout {
+    grid-template-columns: 1fr;
+  }
+}
 
- .users-list {
-   background: #fff;
-   border-radius: 10px;
-   border: 1px solid #eee;
-   overflow: auto;
- }
+.users-list {
+  background: #fff;
+  border-radius: 10px 10px 0 0;
+  border: 1px solid #eee;
+  border-bottom: none;
+  overflow-x: auto;
+  max-height: 600px;
+  overflow-y: auto;
+}
 
- .users-list table {
-   width: 100%;
-   border-collapse: collapse;
-   font-size: 0.9rem;
- }
+.users-list table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
 
  .users-list th,
  .users-list td {
@@ -96,13 +99,51 @@
   text-align: center;
 }
 
- .users-error {
-   color: #c00;
- }
+.users-error {
+  color: #c00;
+}
 
- .users-error-inline {
-   color: #c00;
-   font-size: 0.8rem;
-   margin: 0;
- }
+.users-error-inline {
+  color: #c00;
+  font-size: 0.8rem;
+  margin: 0;
+}
 
+/* Users Filters */
+.users-filters {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  border: 1px solid #e0e0e0;
+}
+
+.users-filters .filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 150px;
+}
+
+.users-filters .filter-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.users-filters .filter-select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  background: white;
+}
+
+.users-filters .filter-select:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}

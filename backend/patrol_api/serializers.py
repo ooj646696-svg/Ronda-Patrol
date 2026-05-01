@@ -209,7 +209,7 @@ class GPSLogSerializer(serializers.ModelSerializer):
                     is_active=True
                 ).first()
                 if active_session:
-                    print(f"✅ [Serializer] Found active session {active_session.id} for user {request.user.username}")
+                    print(f" [Serializer] Found active session {active_session.id} for user {request.user.username}")
                     return active_session
                 else:
                     raise serializers.ValidationError('No active session found for this driver.')
@@ -219,7 +219,7 @@ class GPSLogSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('You can only add GPS logs to your own session.')
         if not value.is_active:
             raise serializers.ValidationError('GPS can only be recorded for an active session.')
-        print(f"✅ [Serializer] Session validation passed")
+        print(f" [Serializer] Session validation passed")
         return value
 
     def validate_accuracy(self, value):
@@ -265,11 +265,14 @@ class GPSLogSerializer(serializers.ModelSerializer):
 class IncidentReportSerializer(serializers.ModelSerializer):
     """Incident report create/read."""
     resolved_by_username = serializers.ReadOnlyField(source='resolved_by.username')
+    driver_name = serializers.ReadOnlyField(source='session.driver.username')
+    driver_id = serializers.ReadOnlyField(source='session.driver.id')
+    branch_name = serializers.ReadOnlyField(source='session.branch.name')
 
     class Meta:
         model = IncidentReport
-        fields = ['id', 'session', 'description', 'image', 'latitude', 'longitude', 'created_at', 'is_resolved', 'resolved_at', 'resolved_by', 'resolved_by_username']
-        read_only_fields = ['created_at', 'resolved_at', 'resolved_by']
+        fields = ['id', 'session', 'description', 'image', 'latitude', 'longitude', 'created_at', 'is_resolved', 'resolved_at', 'resolved_by', 'resolved_by_username', 'driver_name', 'driver_id', 'branch_name']
+        read_only_fields = ['created_at', 'resolved_at', 'resolved_by', 'driver_name', 'driver_id', 'branch_name']
 
 
 # Minimal serializers for write-only or list endpoints
@@ -324,7 +327,7 @@ class PingSendSerializer(serializers.Serializer):
 class PingResponseSerializer(serializers.Serializer):
     """Serializer for driver responding to ping."""
     ping_id = serializers.IntegerField()
-    response = serializers.ChoiceField(choices=['YES', 'NO', 'NEED_ASSISTANCE'])
+    response = serializers.ChoiceField(choices=["I'm fine", 'Needs assistance', 'Emergency'])
     latitude = QuantizedDecimalField(max_digits=11, decimal_places=8, required=False)
     longitude = QuantizedDecimalField(max_digits=11, decimal_places=8, required=False)
     

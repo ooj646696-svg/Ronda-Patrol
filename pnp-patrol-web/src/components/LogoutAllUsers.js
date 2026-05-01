@@ -10,7 +10,7 @@ const LogoutAllUsers = ({ onLogoutSuccess, onLogoutError }) => {
     try {
       console.log('🔄 Attempting to logout all users');
       const response = await api.post('/users/logout_all_users/');
-      console.log('✅ Logout all successful:', response.data);
+      console.log(' Logout all successful:', response.data);
       onLogoutSuccess(response.data);
       setShowConfirm(false);
     } catch (error) {

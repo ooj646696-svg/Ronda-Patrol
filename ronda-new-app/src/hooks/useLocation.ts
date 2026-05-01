@@ -19,10 +19,13 @@ export function useLocation() {
   const getCurrentLocation = useCallback(async () => {
     setError(null);
     try {
+      console.log('Getting current location...');
       const location = await locationService.getCurrentLocation();
+      console.log('Location received:', location);
       setCurrentLocation(location);
       return location;
     } catch (err: any) {
+      console.error('Error getting location:', err);
       setError(err.message || 'Failed to get location');
       return null;
     }

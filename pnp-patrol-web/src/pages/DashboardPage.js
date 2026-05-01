@@ -102,7 +102,7 @@ export function DashboardPage() {
     }
     fetchIncidents();
     
-    // Refresh live data every 10 seconds to see ping responses
+    // Refresh live data every 10 seconds (includes locations + ping status)
     const interval = setInterval(refreshLiveData, 10000);
     
     return () => { 
@@ -260,7 +260,7 @@ const getPingStatusDisplay = (ping) => {
         {/* Logout Messages */}
         {logoutMessage && (
           <div className="logout-success">
-            ✅ {logoutMessage}
+             {logoutMessage}
           </div>
         )}
         {logoutError && (
@@ -273,12 +273,25 @@ const getPingStatusDisplay = (ping) => {
           <p className="muted">No active patrols right now.</p>
         ) : (
           <div className="live-drivers-grid">
-            {live.map((item) => (
+            {live.map((item) => {
+              const pingStatus = item.recent_ping?.status;
+              const cardPingClass = pingStatus === 'SENT' || pingStatus === 'DELIVERED' 
+                ? 'ping-pending' 
+                : pingStatus === 'RESPONDED' 
+                  ? 'ping-responded' 
+                  : '';
+              const hasPingIndicator = pingStatus === 'SENT' || pingStatus === 'DELIVERED' || pingStatus === 'RESPONDED';
+              
+              return (
               <div 
                 key={item.session_id} 
-                className={`driver-card ${selectedDriver?.session_id === item.session_id ? 'selected' : ''}`}
+                className={`driver-card ${selectedDriver?.session_id === item.session_id ? 'selected' : ''} ${cardPingClass}`}
                 onClick={() => setSelectedDriver(selectedDriver?.session_id === item.session_id ? null : item)}
               >
+                {/* Ping indicator dot */}
+                {hasPingIndicator && (
+                  <div className={`ping-indicator ${pingStatus === 'RESPONDED' ? 'responded' : ''}`}></div>
+                )}
                 <div className="driver-header">
                   <span className="badge active">Active</span>
                   <span className="driver-name">{item.driver}</span>
@@ -352,7 +365,8 @@ const getPingStatusDisplay = (ping) => {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import * as ronda from '../api/ronda';
+import { Pagination } from '../components/Pagination';
 import './UsersPage.css';
 
 const ROLES = [
@@ -24,6 +25,13 @@ export function UsersPage() {
     branch: '',
   });
   const [fieldErrors, setFieldErrors] = useState({});
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    role: 'all',
+    branch: 'all',
+    status: 'all'
+  });
 
   useEffect(() => {
     async function load() {
@@ -136,6 +144,21 @@ export function UsersPage() {
     }
   };
 
+  const filteredUsers = users.filter((u) => {
+    if (filters.role !== 'all' && u.role !== filters.role) return false;
+    if (filters.branch !== 'all' && u.branch?.id !== parseInt(filters.branch)) return false;
+    if (filters.status !== 'all') {
+      const isActive = u.is_active;
+      if (filters.status === 'active' && !isActive) return false;
+      if (filters.status === 'inactive' && isActive) return false;
+    }
+    return true;
+  });
+
+  const handleFilterChange = (filterName, value) => {
+    setFilters(prev => ({ ...prev, [filterName]: value }));
+  };
+
   if (loading) return <div className="users-loading">Loading users…</div>;
   if (error) return <div className="users-error">{error}</div>;
 
@@ -148,44 +171,92 @@ export function UsersPage() {
 
       <div className="users-layout">
         <div className="users-list">
-          <table>
-            <thead>
-              <tr>
-                <th>Username</th>
-                <th>Role</th>
-                <th>Branch</th>
-                <th>Email</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.username}</td>
-                  <td>{u.role}</td>
-                  <td>{u.branch_name || '—'}</td>
-                  <td>{u.email || '—'}</td>
-                  <td>{u.is_active ? 'Active' : 'Inactive'}</td>
-                  <td>
-                    <button 
-                      onClick={() => handleEdit(u)} 
-                      className="btn btn-small btn-secondary"
-                      style={{ marginRight: '5px' }}
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(u.id)} 
-                      className="btn btn-small btn-danger"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* Filters */}
+          <div className="users-filters">
+            <div className="filter-group">
+              <label>Role:</label>
+              <select 
+                value={filters.role} 
+                onChange={(e) => handleFilterChange('role', e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Roles</option>
+                <option value="SUPER_ADMIN">Super Admin</option>
+                <option value="BRANCH_ADMIN">Branch Admin</option>
+                <option value="DRIVER">Driver</option>
+              </select>
+            </div>
+            <div className="filter-group">
+              <label>Branch:</label>
+              <select 
+                value={filters.branch} 
+                onChange={(e) => handleFilterChange('branch', e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Branches</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} ({b.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="filter-group">
+              <label>Status:</label>
+              <select 
+                value={filters.status} 
+                onChange={(e) => handleFilterChange('status', e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+          </div>
+          
+          <Pagination data={filteredUsers} itemsPerPage={10}>
+            {(currentUsers) => (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Branch</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentUsers.map((u) => (
+                    <tr key={u.id}>
+                      <td>{u.username}</td>
+                      <td>{u.role}</td>
+                      <td>{u.branch_name || '—'}</td>
+                      <td>{u.email || '—'}</td>
+                      <td>{u.is_active ? 'Active' : 'Inactive'}</td>
+                      <td>
+                        <button 
+                          onClick={() => handleEdit(u)} 
+                          className="btn btn-small btn-secondary"
+                          style={{ marginRight: '5px' }}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(u.id)} 
+                          className="btn btn-small btn-danger"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Pagination>
         </div>
 
         <div className="users-form-card">

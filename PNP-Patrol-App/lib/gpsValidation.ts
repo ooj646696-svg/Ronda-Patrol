@@ -383,7 +383,7 @@ export function formatValidationResult(
   result: GPSValidationResult
 ): string {
   if (result.isValid) {
-    let msg = `✅ Valid GPS (score: ${(result.accuracyScore * 100).toFixed(0)}%)`;
+    let msg = ` Valid GPS (score: ${(result.accuracyScore * 100).toFixed(0)}%)`;
     if (result.warnings.length > 0) {
       msg += ` [Warnings: ${result.warnings.join(', ')}]`;
     }

@@ -202,7 +202,7 @@ class VehiclePhotoSubmissionViewSet(viewsets.ModelViewSet):
             # Validate vehicle
             from patrol_api.models import Vehicle
             vehicle = get_object_or_404(Vehicle, id=vehicle_id)
-            print(f"✅ DEBUG: Found vehicle: {vehicle.plate_number}")
+            print(f" DEBUG: Found vehicle: {vehicle.plate_number}")
             
             # Count photo files
             photo_files = [k for k in request.FILES.keys() if '[image]' in k]
@@ -219,7 +219,7 @@ class VehiclePhotoSubmissionViewSet(viewsets.ModelViewSet):
                 photo_count=len(photo_files),
                 status='uploaded'
             )
-            print(f"✅ DEBUG: Created submission: {submission.id}")
+            print(f" DEBUG: Created submission: {submission.id}")
             
             # Process each photo file
             from patrol_api.models_snapshots import VehiclePhoto
@@ -258,13 +258,13 @@ class VehiclePhotoSubmissionViewSet(viewsets.ModelViewSet):
                             file_size=photo_file.size
                         )
                         created_photos.append(photo)
-                        print(f"✅ DEBUG: Created photo {index}: {photo.shot_type} (ID: {photo.id})")
+                        print(f" DEBUG: Created photo {index}: {photo.shot_type} (ID: {photo.id})")
                     except Exception as photo_error:
                         print(f"❌ ERROR creating photo {index}: {str(photo_error)}")
                         import traceback
                         print(f"❌ TRACEBACK: {traceback.format_exc()}")
             
-            print(f"✅ DEBUG: Created {len(created_photos)} photos total")
+            print(f" DEBUG: Created {len(created_photos)} photos total")
             
             # Update submission with actual photo count
             submission.photo_count = len(created_photos)

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import * as ronda from '../api/ronda';
+import { Pagination } from '../components/Pagination';
 import './VehiclesPage.css';
 
 export function VehiclesPage() {
@@ -15,6 +16,12 @@ export function VehiclesPage() {
     branch: '',
     plate_number: '',
     name: '',
+  });
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    branch: 'all',
+    status: 'all'
   });
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
@@ -108,6 +115,20 @@ export function VehiclesPage() {
     }
   };
 
+  const filteredVehicles = vehicles.filter((v) => {
+    if (filters.branch !== 'all' && v.branch?.id !== parseInt(filters.branch)) return false;
+    if (filters.status !== 'all') {
+      const isActive = v.is_active !== false; // Assuming vehicles have is_active field
+      if (filters.status === 'active' && !isActive) return false;
+      if (filters.status === 'inactive' && isActive) return false;
+    }
+    return true;
+  });
+
+  const handleFilterChange = (filterName, value) => {
+    setFilters(prev => ({ ...prev, [filterName]: value }));
+  };
+
   if (loading) return <div className="vehicles-loading">Loading vehicles…</div>;
 
   return (
@@ -119,40 +140,75 @@ export function VehiclesPage() {
 
       <div className="vehicles-layout">
         <div className="vehicles-list">
-          <table>
-            <thead>
-              <tr>
-                <th>Plate number</th>
-                <th>Name</th>
-                <th>Branch</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {vehicles.map((v) => (
-                <tr key={v.id}>
-                  <td>{v.plate_number}</td>
-                  <td>{v.name || '—'}</td>
-                  <td>{v.branch_name || v.branch}</td>
-                  <td>
-                    <button 
-                      onClick={() => handleEdit(v)} 
-                      className="btn btn-small btn-secondary"
-                      style={{ marginRight: '5px' }}
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(v.id)} 
-                      className="btn btn-small btn-danger"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* Filters */}
+          <div className="vehicles-filters">
+            <div className="filter-group">
+              <label>Branch:</label>
+              <select 
+                value={filters.branch} 
+                onChange={(e) => handleFilterChange('branch', e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Branches</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} ({b.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="filter-group">
+              <label>Status:</label>
+              <select 
+                value={filters.status} 
+                onChange={(e) => handleFilterChange('status', e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+          </div>
+          
+          <Pagination data={filteredVehicles} itemsPerPage={10}>
+            {(currentVehicles) => (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Plate number</th>
+                    <th>Name</th>
+                    <th>Branch</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentVehicles.map((v) => (
+                    <tr key={v.id}>
+                      <td>{v.plate_number}</td>
+                      <td>{v.name || '—'}</td>
+                      <td>{v.branch_name || v.branch?.name || '—'}</td>
+                      <td>
+                        <button 
+                          onClick={() => handleEdit(v)} 
+                          className="btn btn-small btn-secondary"
+                          style={{ marginRight: '5px' }}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(v.id)} 
+                          className="btn btn-small btn-danger"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Pagination>
         </div>
 
         <div className="vehicles-form-card">

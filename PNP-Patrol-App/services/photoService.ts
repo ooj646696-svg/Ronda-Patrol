@@ -178,7 +178,7 @@ class PhotoService {
         timeout: 30000, // 30 seconds timeout for photo upload
       });
       
-      console.log('✅ Photos uploaded successfully:', response.data);
+      console.log(' Photos uploaded successfully:', response.data);
       
       // Save to local history as backup
       await this.saveToHistory(photos, vehicleId, photoType, shiftId);

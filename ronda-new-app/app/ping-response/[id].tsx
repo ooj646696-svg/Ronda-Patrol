@@ -17,6 +17,7 @@ export default function PingResponseScreen() {
   const { colors } = useTheme();
   const { currentLocation } = useLocation();
   const [loading, setLoading] = useState(false);
+  const [hasResponded, setHasResponded] = useState(false);
   const [pingInfo, setPingInfo] = useState<any>(null);
 
   useEffect(() => {
@@ -27,6 +28,12 @@ export default function PingResponseScreen() {
   const handleResponse = async (response: PingResponse) => {
     if (!id) {
       Alert.alert('Error', 'Invalid ping ID');
+      return;
+    }
+
+    // Prevent duplicate responses
+    if (hasResponded || loading) {
+      console.log('Already responded to this ping, ignoring duplicate click');
       return;
     }
 
@@ -41,12 +48,31 @@ export default function PingResponseScreen() {
         } : undefined
       );
 
-      if (success) {
+      // If emergency response, show emergency mode
+      if (response === 'Emergency') {
         Alert.alert(
-          'Response Sent',
-          `Your response "${response}" has been sent successfully.`,
-          [{ text: 'OK', onPress: () => router.back() }]
+          'EMERGENCY MODE',
+          'Emergency response sent! Help is on the way.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.back(),
+              style: 'default',
+            },
+          ],
+          { cancelable: false }
         );
+      } else {
+        Alert.alert('Response Sent', 'Your response has been recorded.', [
+          {
+            text: 'OK',
+            onPress: () => router.back(),
+          },
+        ]);
+      }
+
+      if (success) {
+        setHasResponded(true);
       } else {
         Alert.alert('Error', 'Failed to send response. Please try again.');
       }
@@ -71,7 +97,7 @@ export default function PingResponseScreen() {
         <View style={styles.responseContainer}>
           <TouchableOpacity
             style={[styles.responseButton, styles.okButton, { backgroundColor: '#2d8c4c' }]}
-            onPress={() => handleResponse('YES')}
+            onPress={() => handleResponse("I'm fine")}
             disabled={loading}
           >
             <Text style={styles.responseButtonText}>✓ I'm Fine</Text>
@@ -82,7 +108,7 @@ export default function PingResponseScreen() {
 
           <TouchableOpacity
             style={[styles.responseButton, styles.assistanceButton, { backgroundColor: '#ff9500' }]}
-            onPress={() => handleResponse('NEED_ASSISTANCE')}
+            onPress={() => handleResponse('Needs assistance')}
             disabled={loading}
           >
             <Text style={styles.responseButtonText}>⚠ Need Assistance</Text>
@@ -93,7 +119,7 @@ export default function PingResponseScreen() {
 
           <TouchableOpacity
             style={[styles.responseButton, styles.emergencyButton, { backgroundColor: '#ff4444' }]}
-            onPress={() => handleResponse('NO')}
+            onPress={() => handleResponse('Emergency')}
             disabled={loading}
           >
             <Text style={styles.responseButtonText}>🚨 Emergency</Text>

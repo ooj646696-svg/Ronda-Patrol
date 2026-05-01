@@ -1,48 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as ronda from '../api/ronda';
-import { reverseGeocode, getShortLocationName } from '../utils/geocoding';
+import { Pagination } from '../components/Pagination';
 import './IncidentsPage.css';
-
-// Component to display location name with geocoding
-function LocationName({ latitude, longitude }) {
-  const [locationName, setLocationName] = useState('Locating...');
-  const [showCoords, setShowCoords] = useState(false);
-
-  useEffect(() => {
-    if (!latitude || !longitude) {
-      setLocationName('No location');
-      return;
-    }
-
-    let cancelled = false;
-
-    const fetchLocation = async () => {
-      const address = await reverseGeocode(latitude, longitude);
-      if (!cancelled) {
-        setLocationName(getShortLocationName(address));
-      }
-    };
-
-    fetchLocation();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [latitude, longitude]);
-
-  return (
-    <span 
-      className="location-name" 
-      onClick={() => setShowCoords(!showCoords)}
-      title={`${latitude?.toFixed(6)}, ${longitude?.toFixed(6)} - Click to toggle`}
-    >
-      {showCoords 
-        ? `${latitude?.toFixed(6)}, ${longitude?.toFixed(6)}`
-        : locationName
-      }
-    </span>
-  );
-}
 
 export default function IncidentsPage() {
   const [incidents, setIncidents] = useState([]);
@@ -138,65 +97,74 @@ export default function IncidentsPage() {
       {error && <div className="incidents-error">{error}</div>}
 
       <div className="incidents-list">
-        {filteredIncidents.length === 0 ? (
-          <div className="no-incidents">
-            <p>No incidents found.</p>
-          </div>
-        ) : (
-          filteredIncidents.map(incident => {
-            const type = getIncidentType(incident.description);
-            const isEmergency = type === 'emergency';
+        <Pagination data={filteredIncidents} itemsPerPage={5}>
+          {(currentIncidents) => (
+            currentIncidents.length === 0 ? (
+              <div className="no-incidents">
+                <p>No incidents found.</p>
+              </div>
+            ) : (
+              currentIncidents.map(incident => {
+                const type = getIncidentType(incident.description);
+                const isEmergency = type === 'emergency';
 
-            return (
-              <div key={incident.id} className={`incident-card ${type}`}>
-                <div className="incident-header">
-                  <span className={`incident-badge ${type}`}>
-                    {isEmergency ? 'EMERGENCY' : type === 'assistance' ? 'ASSISTANCE' : 'INCIDENT'}
-                  </span>
-                  <span className="incident-time">
-                    {new Date(incident.created_at).toLocaleString()}
-                  </span>
-                </div>
-
-                <div className="incident-body">
-                  <p className="incident-description">
-                    {getDisplayDescription(incident.description)}
-                  </p>
-
-                  <div className="incident-details">
-                    <div className="detail-item">
-                      <span className="label">Session:</span>
-                      <span className="value">#{incident.session}</span>
+                return (
+                  <div key={incident.id} className={`incident-card ${type}`}>
+                    <div className="incident-header">
+                      <span className={`incident-badge ${type}`}>
+                        {isEmergency ? 'EMERGENCY' : type === 'assistance' ? 'ASSISTANCE' : 'INCIDENT'}
+                      </span>
+                      <span className="incident-time">
+                        {new Date(incident.created_at).toLocaleString()}
+                      </span>
                     </div>
-                    {incident.latitude && incident.longitude && (
-                      <div className="detail-item location-item">
-                        <span className="label">Location:</span>
-                        <LocationName 
-                          latitude={parseFloat(incident.latitude)} 
-                          longitude={parseFloat(incident.longitude)} 
-                        />
-                        <a
-                          href={`https://www.google.com/maps?q=${incident.latitude},${incident.longitude}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="map-link"
-                        >
-                          View on Map
-                        </a>
+
+                    <div className="incident-body">
+                      <p className="incident-description">
+                        {getDisplayDescription(incident.description)}
+                      </p>
+
+                      <div className="incident-details">
+                        {incident.driver_name && (
+                          <div className="detail-item">
+                            <span className="label">Driver:</span>
+                            <span className="value">{incident.driver_name}</span>
+                          </div>
+                        )}
+                        <div className="detail-item">
+                          <span className="label">Session:</span>
+                          <span className="value">#{incident.session}</span>
+                        </div>
+                        {incident.latitude && incident.longitude && (
+                          <div className="detail-item location-item">
+                            <span className="label">Location:</span>
+                            <span className="value">
+                              {parseFloat(incident.latitude).toFixed(6)}, {parseFloat(incident.longitude).toFixed(6)}
+                            </span>
+                            <a
+                              href={`https://www.google.com/maps?q=${incident.latitude},${incident.longitude}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="map-link"
+                            >
+                              View on Map
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {incident.image && (
+                      <div className="incident-image">
+                        <img src={incident.image} alt="Incident" />
                       </div>
                     )}
                   </div>
-                </div>
-
-                {incident.image && (
-                  <div className="incident-image">
-                    <img src={incident.image} alt="Incident" />
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
+                );
+              })
+            )
+          )}
+        </Pagination>
       </div>
     </div>
   );

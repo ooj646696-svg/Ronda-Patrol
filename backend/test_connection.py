@@ -11,13 +11,13 @@ def test_backend_connection():
     try:
         # Test basic API endpoint
         response = requests.get(f"{base_url}/sessions/", timeout=5)
-        print(f"✅ Backend accessible! Status: {response.status_code}")
+        print(f" Backend accessible! Status: {response.status_code}")
         
         # Test GPS endpoint (should fail without auth, but should reach the server)
         response = requests.post(f"{base_url}/gps-logs/", 
                                json={"test": "data"}, 
                                timeout=5)
-        print(f"✅ GPS endpoint reachable! Status: {response.status_code}")
+        print(f" GPS endpoint reachable! Status: {response.status_code}")
         
     except requests.exceptions.ConnectionError:
         print("❌ Backend not accessible - Connection refused")

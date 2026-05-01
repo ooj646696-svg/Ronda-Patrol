@@ -11,10 +11,13 @@
 
 .table-wrap {
   background: #fff;
-  border-radius: 10px;
-  overflow: auto;
+  border-radius: 10px 10px 0 0;
+  overflow-x: auto;
+  max-height: 600px;
+  overflow-y: auto;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   border: 1px solid #eee;
+  border-bottom: none;
 }
 
 .sessions-table {
@@ -48,4 +51,45 @@
 
 .sessions-error {
   color: #c00;
+}
+
+/* Sessions Filters */
+.sessions-filters {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  border: 1px solid #e0e0e0;
+}
+
+.sessions-filters .filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 150px;
+}
+
+.sessions-filters .filter-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.sessions-filters .filter-select,
+.sessions-filters .filter-input {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  background: white;
+}
+
+.sessions-filters .filter-select:focus,
+.sessions-filters .filter-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }

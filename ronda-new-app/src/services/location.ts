@@ -61,11 +61,14 @@ export class LocationService {
    */
   async requestPermissions(): Promise<boolean> {
     try {
+      console.log('Requesting location permissions...');
       const { status } = await Location.requestForegroundPermissionsAsync();
+      console.log('Location permission status:', status);
       if (status !== 'granted') {
         console.error('Location permission denied');
         return false;
       }
+      console.log('Location permission granted');
       return true;
     } catch (error) {
       console.error('Error requesting location permissions:', error);

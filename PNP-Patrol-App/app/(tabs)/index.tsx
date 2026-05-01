@@ -167,7 +167,7 @@ export default function HomeScreen() {
       try {
         const res = await trySyncOfflineSession();
         if (res.synced && res.serverSessionId) {
-          console.log('✅ Offline session synced. Server session:', res.serverSessionId);
+          console.log(' Offline session synced. Server session:', res.serverSessionId);
           await fetchSessions();
         }
       } catch (e) {
@@ -289,7 +289,7 @@ export default function HomeScreen() {
           altitude
         );
         setLastGpsTime(timestamp);
-        console.log('✅ GPS data sent successfully:', { 
+        console.log(' GPS data sent successfully:', { 
           sessionId, 
           lat: latitude.toFixed(6), 
           lon: longitude.toFixed(6), 
@@ -481,7 +481,7 @@ export default function HomeScreen() {
       // Start initial adaptive tracking
       startAdaptiveTracking(initialLocation.coords.speed || 0);
       
-      console.log('✅ Adaptive GPS tracking started successfully');
+      console.log(' Adaptive GPS tracking started successfully');
     } catch (error) {
       console.error('❌ Failed to start GPS tracking:', error);
       
@@ -490,7 +490,7 @@ export default function HomeScreen() {
       try {
         await captureAndSendGps();
         intervalRef.current = setInterval(captureAndSendGps, 30000); // Conservative 30s fallback
-        console.log('✅ Fallback tracking started');
+        console.log(' Fallback tracking started');
       } catch (fallbackError) {
         console.error('❌ Even fallback tracking failed:', fallbackError);
         Alert.alert('GPS Error', 'Unable to start GPS tracking. Please check your location settings.');
@@ -660,7 +660,7 @@ export default function HomeScreen() {
       
       // CRITICAL: Set session first, ensure it's fully stored
       setSession(newSession);
-      console.log('✅ Session stored in state:', newSession.id);
+      console.log(' Session stored in state:', newSession.id);
       
       // Start background tracking for this user
       if (user?.id) {
@@ -672,7 +672,7 @@ export default function HomeScreen() {
       console.log('🚀 Starting GPS tracking with confirmed session:', newSession.id);
       await startContinuousTracking(newSession);
       
-      console.log('✅ Session and GPS tracking started successfully:', newSession.id);
+      console.log(' Session and GPS tracking started successfully:', newSession.id);
     } catch (e: unknown) {
       console.error('❌ Failed to start session:', e);
 
@@ -750,7 +750,7 @@ export default function HomeScreen() {
       stopTracking();
       setSession(null);
       setLastGpsTime(null);
-      console.log('✅ Session stopped successfully');
+      console.log(' Session stopped successfully');
     } catch (e: unknown) {
       const msg = (e as Error)?.message || 'Failed to stop session';
       console.error('❌ Failed to stop session:', e);
@@ -776,7 +776,7 @@ export default function HomeScreen() {
       return;
     }
     
-    console.log('📤 Sending ping response:', { pingId: activePing.id, response });
+    console.log(' Sending ping response:', { pingId: activePing.id, response });
     
     try {
       setActionLoading(true);
@@ -791,7 +791,7 @@ export default function HomeScreen() {
       }
       
       const result = await ronda.ping.respond(activePing.id, response, latitude, longitude);
-      console.log('✅ Ping response sent successfully:', result);
+      console.log(' Ping response sent successfully:', result);
       
       setPingModalVisible(false);
       setActivePing(null);
@@ -847,7 +847,7 @@ export default function HomeScreen() {
         <Text style={styles.debugText}>User ID: {user?.id}</Text>
         <Text style={styles.debugText}>Branch ID: {user?.branchId}</Text>
         <Text style={styles.debugText}>Vehicles: {vehicles.length}</Text>
-        <Text style={styles.debugText}>🗄️ SQLite: {isInitializing ? 'Initializing...' : isInitialized ? '✅ Ready' : '❌ Error'}</Text>
+        <Text style={styles.debugText}>🗄️ SQLite: {isInitializing ? 'Initializing...' : isInitialized ? ' Ready' : '❌ Error'}</Text>
         {dbError && <Text style={styles.debugText}>🗄️ DB Error: {dbError}</Text>}
         {vehicles.map((v, i) => (
           <Text key={v.id} style={styles.debugText}>  - {v.plate_number} (ID: {v.id})</Text>
@@ -1049,7 +1049,7 @@ function PingModal({ visible, ping, onRespond, onClose }: {
               style={[pingModalStyles.button, pingModalStyles.yesButton]}
               onPress={() => onRespond('YES')}
             >
-              <Text style={pingModalStyles.buttonText}>✅ Yes, I'm Fine</Text>
+              <Text style={pingModalStyles.buttonText}> Yes, I'm Fine</Text>
             </TouchableOpacity>
 
             <TouchableOpacity

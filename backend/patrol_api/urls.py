@@ -27,6 +27,7 @@ from .views import (
     PingSendView,
     PingRespondView,
     PingActiveView,
+    PendingPingsView,
     VideoCallViewSet,
 )
 from .notifications import (
@@ -57,6 +58,7 @@ urlpatterns = [
     path('ping/send/', PingSendView.as_view(), name='ping_send'),
     path('ping/respond/', PingRespondView.as_view(), name='ping_respond'),
     path('ping/active/', PingActiveView.as_view(), name='ping_active'),
+    path('emergency/pending-pings/', PendingPingsView.as_view(), name='pending_pings'),
     path('notifications/register/', register_push_token, name='register_push_token'),
     path('notifications/unregister/', unregister_push_token, name='unregister_push_token'),
     path('notifications/', NotificationRegistrationView.as_view(), name='notification_registration'),

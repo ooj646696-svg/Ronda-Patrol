@@ -29,7 +29,7 @@ def check_gpslog_fields():
             print(f"\n❌ Missing fields: {missing_fields}")
             print("Migration 0008 needs to be applied!")
         else:
-            print("\n✅ All new GPS fields are present")
+            print("\n All new GPS fields are present")
         
         # Check migrations
         cursor.execute("SELECT name FROM django_migrations WHERE app='patrol_api' ORDER BY applied")
@@ -39,7 +39,7 @@ def check_gpslog_fields():
         if '0008_videocall_gpslog_accuracy_gpslog_accuracy_score_and_more' not in applied_migrations:
             print("❌ Migration 0008 has NOT been applied")
         else:
-            print("✅ Migration 0008 has been applied")
+            print(" Migration 0008 has been applied")
 
 if __name__ == '__main__':
     check_gpslog_fields()

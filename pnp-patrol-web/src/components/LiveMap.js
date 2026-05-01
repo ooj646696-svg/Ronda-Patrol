@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Polyline, Popup, GeoJSON, useMap } fro
 import L from 'leaflet';
 import * as ronda from '../api/ronda';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from './Toast';
 import { reverseGeocode, getShortLocationName } from '../utils/geocoding';
 import 'leaflet/dist/leaflet.css';
 import './LiveMap.css';
@@ -157,9 +158,9 @@ function createIncidentIcon(isEmergency) {
   return L.icon({
     iconUrl: svgUrl,
     iconSize: [36, 44],
-    iconAnchor: [18, 40],
-    popupAnchor: [0, -40],
-    className: 'incident-marker',
+    iconAnchor: [18, 44], // Bottom point of diamond
+    popupAnchor: [0, -44],
+    className: `incident-marker ${isEmergency ? 'emergency' : 'assistance'}`,
   });
 }
 
@@ -396,6 +397,11 @@ function PersistentTrail({ sessionId, recentPoints, showTrails }) {
 
 // Incident Markers Component
 function IncidentMarkers({ incidents, showIncidents, onResolve, onShowRoute, onHideRoute, userRole, incidentRoutes }) {
+  console.log(`[IncidentMarkers] Received ${incidents?.length || 0} incidents, showIncidents=${showIncidents}`);
+  if (incidents && incidents.length > 0) {
+    console.log(`[IncidentMarkers] First incident:`, incidents[0]);
+  }
+  
   if (!showIncidents || !incidents || incidents.length === 0) return null;
 
   const isAdmin = userRole === 'SUPER_ADMIN' || userRole === 'BRANCH_ADMIN';
@@ -409,14 +415,40 @@ function IncidentMarkers({ incidents, showIncidents, onResolve, onShowRoute, onH
           ?.replace(/\[EMERGENCY\]|\[ASSISTANCE\]/, '')
           .trim() || 'No description';
 
-        const lat = parseFloat(incident.latitude);
-        const lng = parseFloat(incident.longitude);
+        // Parse coordinates - handle both string and number formats
+        let lat = parseFloat(incident.latitude);
+        let lng = parseFloat(incident.longitude);
         const routeData = incidentRoutes[incident.id];
+        
+        console.log(`[IncidentMarker] ID ${incident.id}: lat=${lat}, lng=${lng}, raw=${incident.latitude},${incident.longitude}`);
+        console.log(`[IncidentMarker] ID ${incident.id}: types - lat=${typeof incident.latitude}, lng=${typeof incident.longitude}`);
 
-        // Skip if coordinates are invalid, zero, or out of reasonable range
-        if (isNaN(lat) || isNaN(lng)) return null;
-        if (lat === 0 && lng === 0) return null; // GPS not ready
-        if (lat < 4 || lat > 22 || lng < 115 || lng > 130) return null; // Outside Philippines
+        // Skip if coordinates are invalid
+        if (isNaN(lat) || isNaN(lng)) {
+          console.log(`[IncidentMarker] ID ${incident.id}: Skipping - invalid coordinates (NaN)`);
+          return null;
+        }
+        if (lat === 0 && lng === 0) {
+          console.log(`[IncidentMarker] ID ${incident.id}: Skipping - GPS not ready (0,0)`);
+          return null;
+        }
+        // Check if coordinates might be swapped (lng/lat instead of lat/lng)
+        // Valid lat: -90 to 90, valid lng: -180 to 180
+        if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+          console.log(`[IncidentMarker] ID ${incident.id}: Coordinates out of normal range, checking if swapped...`);
+          // If lng is within lat range and lat is within lng range, they might be swapped
+          if (Math.abs(lng) <= 90 && Math.abs(lat) <= 180) {
+            console.log(`[IncidentMarker] ID ${incident.id}: Swapping coordinates!`);
+            const temp = lat;
+            lat = lng;
+            lng = temp;
+          } else {
+            console.log(`[IncidentMarker] ID ${incident.id}: Skipping - coordinates completely out of range`);
+            return null;
+          }
+        }
+
+        console.log(`[IncidentMarker] ID ${incident.id}: Rendering marker at [${lat}, ${lng}]`);
 
         return (
           <React.Fragment key={`incident-${incident.id}`}>
@@ -432,8 +464,14 @@ function IncidentMarkers({ incidents, showIncidents, onResolve, onShowRoute, onH
               />
             )}
             <Marker
+              key={`marker-${incident.id}-${lat}-${lng}`}
               position={[lat, lng]}
               icon={createIncidentIcon(isEmergency)}
+              eventHandlers={{
+                add: (e) => {
+                  console.log(`[IncidentMarker] ID ${incident.id}: Marker added at [${lat}, ${lng}]`, e.target.getLatLng());
+                }
+              }}
             >
               <Popup>
                 <div className="incident-popup">
@@ -543,41 +581,33 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
           const hasEmergency = driverEmergencies.length > 0;
           const hasAssistance = driverAssistance.length > 0;
 
-          // Determine if driver is offline (no GPS data for more than 5 minutes)
+          // Simple offline detection: no recent GPS data (network issue)
           let isOffline = false;
           
-          // Debug: Log the entire location object
-          console.log(`Driver ${loc.driver} data:`, {
-            timestamp: loc.timestamp,
-            last_updated: loc.last_updated,
-            updated_at: loc.updated_at,
-            created_at: loc.created_at,
-            session_id: loc.session_id
-          });
-          
-          // Check multiple possible timestamp fields
-          const timestampField = loc.timestamp || loc.last_updated || loc.updated_at;
-          
-          if (timestampField) {
-            try {
-              const timestamp = new Date(timestampField);
-              const now = new Date();
-              const timeDiff = now.getTime() - timestamp.getTime();
-              isOffline = timeDiff > 5 * 60 * 1000; // 5 minutes
-              
-              // Debug logging
-              console.log(`Driver ${loc.driver} time analysis:`, {
-                timestamp: timestampField,
-                timeDiffMinutes: Math.round(timeDiff / 60000),
-                isOffline
-              });
-            } catch (error) {
-              console.error('Error parsing timestamp for offline detection:', error);
-              isOffline = true; // Assume offline if timestamp is invalid
-            }
+          // Check if driver has GPS coordinates
+          if (!loc.latitude || !loc.longitude) {
+            isOffline = true;
           } else {
-            isOffline = true; // Assume offline if no timestamp
-            console.log(`Driver ${loc.driver} offline: No timestamp field found`);
+            // Check timestamp - only mark offline if very old (10+ minutes)
+            let timestampField = loc.timestamp || loc.last_updated || loc.updated_at;
+            
+            // If no timestamp but has recent_points, use the last point's timestamp
+            if (!timestampField && loc.recent_points && loc.recent_points.length > 0) {
+              const lastPoint = loc.recent_points[loc.recent_points.length - 1];
+              timestampField = lastPoint.timestamp;
+            }
+            
+            if (timestampField) {
+              try {
+                const timestamp = new Date(timestampField);
+                const now = new Date();
+                const timeDiff = now.getTime() - timestamp.getTime();
+                isOffline = timeDiff > 10 * 60 * 1000; // 10 minutes threshold
+              } catch (error) {
+                // If we can't parse timestamp, don't mark as offline
+                isOffline = false;
+              }
+            }
           }
 
           return (
@@ -616,7 +646,7 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
                     <div className="popup-info">
                       {isOffline && <div className="offline-indicator">📵 <strong>OFFLINE</strong> - No recent GPS data</div>}
                       {loc.vehicle} — {loc.branch}<br />
-                      {timestampField ? new Date(timestampField).toLocaleString() : '—'}<br />
+                      {loc.timestamp ? new Date(loc.timestamp).toLocaleString() : '—'}<br />
                       <strong>Coordinates:</strong><br />
                       Lat: {loc.latitude?.toFixed(6) || 'N/A'}<br />
                       Lng: {loc.longitude?.toFixed(6) || 'N/A'}<br />
@@ -705,6 +735,7 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
 
 export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
   const { user } = useAuth();
+  const toast = useToast();
   const [locations, setLocations] = useState([]);
   const [allSessions, setAllSessions] = useState([]);
   const [incidents, setIncidents] = useState([]);
@@ -717,6 +748,7 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
   const [showIncidents, setShowIncidents] = useState(true);
   const [incidentRoutes, setIncidentRoutes] = useState({});
   const fetchRef = useRef(null);
+  const prevDriversRef = useRef(new Set()); // Track previously active drivers
 
   const handlePing = async (driverId, driverName) => {
     if (pinging[driverId]) return;
@@ -775,12 +807,14 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
 
   const refreshLiveData = async () => {
     try {
-      const [liveData, sessionsData] = await Promise.all([
+      const [liveData, sessionsData, incidentsData] = await Promise.all([
         ronda.sessions.live(),
         ronda.sessions.list(),
+        ronda.incidents.list(),
       ]);
       setLocations(liveData);
       setAllSessions(sessionsData);
+      setIncidents(incidentsData);
       setLastUpdate(new Date());
     } catch (e) {
       console.error('Failed to refresh live data:', e);
@@ -800,6 +834,28 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
       const hasActiveDrivers = activeDriversWithGPS.length > 0;
 
       setLocations(liveData);
+      
+      // Check for new drivers and show toast notifications
+      const currentDrivers = new Set(liveData.map(loc => loc.driver));
+      const prevDrivers = prevDriversRef.current;
+      const newDrivers = [...currentDrivers].filter(driver => !prevDrivers.has(driver));
+      
+      if (newDrivers.length > 0 && prevDrivers.size > 0) {
+        // Show toast for each new driver
+        newDrivers.forEach(driver => {
+          toast.success(
+            `${driver} started patrol session`,
+            {
+              title: 'Driver Active',
+              duration: 5000,
+            }
+          );
+        });
+      }
+      
+      // Update previous drivers reference
+      prevDriversRef.current = currentDrivers;
+      
       setAllSessions(sessionsData);
       // Filter incidents with coordinates, from today, and not resolved
       const incidentsList = Array.isArray(incidentsData) ? incidentsData : (incidentsData.results || []);
@@ -808,7 +864,11 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
       const recentIncidents = incidentsList.filter(inc =>
         inc.latitude && inc.longitude && new Date(inc.created_at) >= today && !inc.is_resolved
       );
-      setIncidents(recentIncidents);
+      
+      // Only update incidents if the list has stabilized (prevents flashing)
+      if (recentIncidents.length > 0 || incidents.length === 0) {
+        setIncidents(recentIncidents);
+      }
       setLastUpdate(new Date());
       setError(null);
 
@@ -843,6 +903,7 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
         fetchRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const displayList = branchFilter
@@ -1043,7 +1104,7 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
                 {hasAssistance && !hasEmergency && (
                   <div className="driver-card-alert assistance">
                     <strong>ASSISTANCE</strong>
-                    <span>Needs help</span>
+                    <span>Requesting assistance</span>
                   </div>
                 )}
                 {isOfflineDriver && !hasEmergency && !hasAssistance && (
@@ -1077,10 +1138,15 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
                 {loc.recent_ping && (
                   <div className="driver-ping-status">
                     {pingStatus === 'RESPONDED' ? (
-                      <span className="ping-badge success">
-                        {pingResponse === 'YES' && 'Fine'}
-                        {pingResponse === 'NO' && 'Needs help'}
-                        {pingResponse === 'NEED_ASSISTANCE' && 'EMERGENCY'}
+                      <span className={`ping-badge ${
+                        pingResponse === "I'm fine" ? 'success' : 
+                        pingResponse === 'Needs assistance' ? 'warning' : 
+                        pingResponse === 'Emergency' ? 'emergency' : 'success'
+                      }`}>
+                        {pingResponse === "I'm fine" && '✓ Fine'}
+                        {pingResponse === 'Needs assistance' && '⚠ Needs Assistance'}
+                        {pingResponse === 'Emergency' && '🚨 EMERGENCY'}
+                        {!pingResponse && 'Responded'}
                       </span>
                     ) : (
                       <span className="ping-badge pending">

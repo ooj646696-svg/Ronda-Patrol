@@ -161,6 +161,7 @@
   border: 2px solid #eee;
   cursor: pointer;
   transition: all 0.2s ease;
+  position: relative;
 }
 
 .driver-card:hover {
@@ -171,6 +172,69 @@
 .driver-card.selected {
   border-color: #007bff;
   box-shadow: 0 4px 16px rgba(0,123,255,0.2);
+}
+
+/* Driver card ping states */
+.driver-card.ping-pending {
+  border-color: #ffc107;
+  background: linear-gradient(135deg, #fff 0%, #fffbeb 100%);
+  box-shadow: 0 4px 16px rgba(255, 193, 7, 0.25);
+  animation: pulse-ping 2s infinite;
+}
+
+.driver-card.ping-pending:hover {
+  border-color: #ff9800;
+  box-shadow: 0 4px 20px rgba(255, 152, 0, 0.35);
+}
+
+.driver-card.ping-responded {
+  border-color: #28a745;
+  background: linear-gradient(135deg, #fff 0%, #f0fff4 100%);
+  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.15);
+}
+
+.driver-card.ping-responded:hover {
+  border-color: #218838;
+  box-shadow: 0 4px 16px rgba(33, 136, 56, 0.25);
+}
+
+@keyframes pulse-ping {
+  0%, 100% {
+    box-shadow: 0 4px 16px rgba(255, 193, 7, 0.25);
+  }
+  50% {
+    box-shadow: 0 4px 24px rgba(255, 193, 7, 0.45);
+  }
+}
+
+/* Ping indicator badge on card */
+.ping-indicator {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffc107;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  animation: pulse-indicator 1.5s infinite;
+}
+
+.ping-indicator.responded {
+  background: #28a745;
+  animation: none;
+}
+
+@keyframes pulse-indicator {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
 }
 
 .driver-header {
@@ -185,6 +249,7 @@
   flex-direction: column;
   gap: 0.4rem;
   margin-bottom: 0.75rem;
+  text-align: left;
 }
 
 .info-row {

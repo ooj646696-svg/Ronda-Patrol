@@ -96,7 +96,7 @@ export class PermissionsService {
       mediaLibrary,
     };
 
-    console.log('✅ Permission Status:', permissions);
+    console.log(' Permission Status:', permissions);
     
     // Warn if critical permissions were denied
     if (!location) {

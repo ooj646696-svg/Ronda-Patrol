@@ -114,9 +114,20 @@
   color: #155724;
 }
 
-.ping-badge.pending {
+.ping-badge.warning {
   background: #fff3cd;
   color: #856404;
+}
+
+.ping-badge.emergency {
+  background: #f8d7da;
+  color: #721c24;
+  font-weight: bold;
+}
+
+.ping-badge.pending {
+  background: #e2e3e5;
+  color: #383d41;
 }
 
 /* Ping Button in Popup */
@@ -263,7 +274,7 @@
 
 .driver-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.75rem;
   margin-bottom: 0.5rem;
 }
@@ -311,6 +322,7 @@
 .driver-info {
   flex: 1;
   min-width: 0;
+  text-align: left;
 }
 
 .driver-name {
@@ -318,9 +330,10 @@
   font-size: 0.9rem;
   color: #333;
   margin-bottom: 0.2rem;
-  white-space: nowrap;
+  /* white-space: nowrap; */
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
 }
 
 .driver-details {
@@ -329,6 +342,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
 }
 
 .driver-location {
@@ -672,6 +686,23 @@
   text-align: left;
 }
 
+/* Fix sidebar text alignment - override any center styles */
+.live-map-sidebar .driver-info {
+  text-align: left !important;
+}
+
+.live-map-sidebar .driver-name {
+  text-align: left !important;
+}
+
+.live-map-sidebar .driver-details {
+  text-align: left !important;
+}
+
+.live-map-sidebar .driver-location {
+  text-align: left !important;
+}
+
 .driver-card-alert strong {
   display: block;
   font-size: 0.75rem;
@@ -697,6 +728,76 @@
 .driver-card-alert.offline {
   background: linear-gradient(135deg, #808080, #606060);
   color: white;
+}
+
+/* Emergency Incident Marker Animation - DISABLED for testing */
+/* .incident-marker {
+  animation: emergency-pulse 2s infinite;
+}
+
+.incident-marker.emergency {
+  animation: emergency-pulse-intense 1s infinite;
+} */
+
+@keyframes emergency-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes emergency-pulse-intense {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+    filter: drop-shadow(0 0 6px rgba(198, 40, 40, 0.6));
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.9;
+    filter: drop-shadow(0 0 10px rgba(198, 40, 40, 0.8));
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+    filter: drop-shadow(0 0 6px rgba(198, 40, 40, 0.6));
+  }
+}
+
+/* Fix popup positioning - only for incident popups */
+.incident-popup .leaflet-popup-content-wrapper {
+  position: relative;
+}
+
+/* Ensure incident markers are visible and on top */
+.incident-marker {
+  z-index: 1000 !important;
+  transform-origin: center bottom !important;
+}
+
+/* Debug marker visibility */
+.leaflet-marker-icon.incident-marker {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+/* Emergency popup styling */
+.leaflet-popup-content-wrapper.emergency-popup {
+  background: #ffebee;
+  border: 2px solid #c62828;
+}
+
+.leaflet-popup-content-wrapper.emergency-popup .leaflet-popup-content {
+  color: #c62828;
+  font-weight: bold;
 }
 
 /* Emergency/Assistance Ping Button Styles */
@@ -731,6 +832,18 @@
   background: #fff8f8;
   border-bottom: 1px solid #ffcdd2;
   padding: 0.75rem;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .sidebar-incidents-header {

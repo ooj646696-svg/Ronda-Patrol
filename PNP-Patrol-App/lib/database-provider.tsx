@@ -26,7 +26,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         await databaseService.init();
         setIsInitialized(true);
         setError(null);
-        console.log('✅ SQLite database initialized successfully');
+        console.log(' SQLite database initialized successfully');
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown database error';
         setError(errorMessage);

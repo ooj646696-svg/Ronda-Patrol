@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import * as ronda from '../api/ronda';
+import { Pagination } from '../components/Pagination';
 import 'leaflet/dist/leaflet.css';
 import './BranchesPage.css';
 
@@ -42,6 +43,12 @@ export function BranchesPage() {
     latitude: '',
     longitude: '',
     is_main: false,
+  });
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    type: 'all',
+    hasLocation: 'all'
   });
 
   useEffect(() => {
@@ -144,6 +151,23 @@ export function BranchesPage() {
       ? [parseFloat(form.latitude), parseFloat(form.longitude)]
       : null;
 
+  const filteredBranches = branches.filter((b) => {
+    if (filters.type !== 'all') {
+      if (filters.type === 'main' && !b.is_main) return false;
+      if (filters.type === 'regular' && b.is_main) return false;
+    }
+    if (filters.hasLocation !== 'all') {
+      const hasCoords = b.latitude && b.longitude;
+      if (filters.hasLocation === 'with' && !hasCoords) return false;
+      if (filters.hasLocation === 'without' && hasCoords) return false;
+    }
+    return true;
+  });
+
+  const handleFilterChange = (filterName, value) => {
+    setFilters(prev => ({ ...prev, [filterName]: value }));
+  };
+
   if (loading) return <div className="branches-loading">Loading branches…</div>;
   if (error) return <div className="branches-error">{error}</div>;
 
@@ -157,44 +181,76 @@ export function BranchesPage() {
 
       <div className="branches-layout">
         <div className="branches-list">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Code</th>
-                <th>Main</th>
-                <th>Latitude</th>
-                <th>Longitude</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {branches.map((b) => (
-                <tr key={b.id}>
-                  <td>{b.name}</td>
-                  <td>{b.code}</td>
-                  <td>{b.is_main ? 'Yes' : 'No'}</td>
-                  <td>{b.latitude ?? '—'}</td>
-                  <td>{b.longitude ?? '—'}</td>
-                  <td>
-                    <button 
-                      onClick={() => handleEdit(b)} 
-                      className="btn btn-small btn-secondary"
-                      style={{ marginRight: '5px' }}
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(b.id)} 
-                      className="btn btn-small btn-danger"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* Filters */}
+          <div className="branches-filters">
+            <div className="filter-group">
+              <label>Type:</label>
+              <select 
+                value={filters.type} 
+                onChange={(e) => handleFilterChange('type', e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Types</option>
+                <option value="main">Main Branch</option>
+                <option value="regular">Regular Branch</option>
+              </select>
+            </div>
+            <div className="filter-group">
+              <label>Location:</label>
+              <select 
+                value={filters.hasLocation} 
+                onChange={(e) => handleFilterChange('hasLocation', e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Locations</option>
+                <option value="with">With GPS</option>
+                <option value="without">Without GPS</option>
+              </select>
+            </div>
+          </div>
+          
+          <Pagination data={filteredBranches} itemsPerPage={10}>
+            {(currentBranches) => (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Code</th>
+                    <th>Address</th>
+                    <th>Latitude</th>
+                    <th>Longitude</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentBranches.map((b) => (
+                    <tr key={b.id}>
+                      <td>{b.name}</td>
+                      <td>{b.code}</td>
+                      <td>{b.address || '—'}</td>
+                      <td>{b.latitude || '—'}</td>
+                      <td>{b.longitude || '—'}</td>
+                      <td>
+                        <button 
+                          onClick={() => handleEdit(b)} 
+                          className="btn btn-small btn-secondary"
+                          style={{ marginRight: '5px' }}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(b.id)} 
+                          className="btn btn-small btn-danger"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Pagination>
         </div>
 
         <div className="branches-form-card">

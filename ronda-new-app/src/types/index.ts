@@ -119,7 +119,7 @@ export interface PhotoUploadResponse {
 
 // Ping Types
 export type PingStatus = 'SENT' | 'DELIVERED' | 'RESPONDED' | 'TIMEOUT';
-export type PingResponse = 'YES' | 'NO' | 'NEED_ASSISTANCE';
+export type PingResponse = "I'm fine" | 'Needs assistance' | 'Emergency';
 
 export interface PingRequest {
   id: number;

@@ -1,73 +1,105 @@
 /**
- * Notification Context
- * Manages push notification initialization and state
+ * Ping Polling Context
+ * Manages polling for pending pings from backend (alternative to push notifications)
  */
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { notificationService } from '../services/notifications';
+import { Alert } from 'react-native';
+import { pingPollingService, type PendingPing } from '../services/pingPolling';
+import { router } from 'expo-router';
 
-interface NotificationContextType {
-  isInitialized: boolean;
-  hasPermission: boolean;
+interface PingPollingContextType {
+  isPolling: boolean;
   error: string | null;
 }
 
-const NotificationContext = createContext<NotificationContextType>({
-  isInitialized: false,
-  hasPermission: false,
+const PingPollingContext = createContext<PingPollingContextType>({
+  isPolling: false,
   error: null,
 });
 
-export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [hasPermission, setHasPermission] = useState(false);
+export function PingPollingProvider({ children }: { children: React.ReactNode }) {
+  const [isPolling, setIsPolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const initializeNotifications = async () => {
+    const initializePingPolling = () => {
       try {
-        console.log('Initializing notification service...');
+        console.log('Initializing ping polling service...');
         
-        // Request permissions first
-        const permission = await notificationService.requestPermissions();
-        setHasPermission(permission);
+        // Track which pings we've already shown alerts for to prevent duplicates
+        const handledPingIds = new Set<number>();
         
-        if (!permission) {
-          setError('Notification permission denied');
-          return;
-        }
-
-        // Initialize the service (registers token, sets up listeners)
-        await notificationService.initialize();
-        setIsInitialized(true);
+        // Set up callback for when a ping is received
+        pingPollingService.onPingReceived((ping: PendingPing) => {
+          console.log('Ping received via polling:', ping);
+          
+          // Skip if we already handled this ping
+          if (handledPingIds.has(ping.id)) {
+            console.log('Ping already handled, skipping:', ping.id);
+            return;
+          }
+          
+          handledPingIds.add(ping.id);
+          
+          // Show alert to notify driver
+          Alert.alert(
+            'Ping Received',
+            ping.message || 'Please respond to confirm your status',
+            [
+              { 
+                text: 'Ignore', 
+                style: 'cancel',
+                onPress: () => {
+                  // Remove from handled set so it can trigger again if needed
+                  handledPingIds.delete(ping.id);
+                }
+              },
+              { 
+                text: 'Respond', 
+                onPress: () => {
+                  router.push(`/ping-response/${ping.id}` as any);
+                }
+              }
+            ]
+          );
+        });
+        
+        // Start polling
+        pingPollingService.startPolling();
+        setIsPolling(true);
         setError(null);
         
-        console.log('Notification service initialized successfully');
+        console.log('Ping polling service started successfully');
       } catch (err: any) {
-        console.error('Failed to initialize notifications:', err);
-        setError(err.message || 'Failed to initialize notifications');
+        console.error('Failed to initialize ping polling:', err);
+        setError(err.message || 'Failed to initialize ping polling');
       }
     };
 
-    initializeNotifications();
+    initializePingPolling();
+
+    // Cleanup on unmount
+    return () => {
+      pingPollingService.stopPolling();
+    };
   }, []);
 
   return (
-    <NotificationContext.Provider
+    <PingPollingContext.Provider
       value={{
-        isInitialized,
-        hasPermission,
+        isPolling,
         error,
       }}
     >
       {children}
-    </NotificationContext.Provider>
+    </PingPollingContext.Provider>
   );
 }
 
-export function useNotifications() {
-  const context = useContext(NotificationContext);
+export function usePingPolling() {
+  const context = useContext(PingPollingContext);
   if (!context) {
-    throw new Error('useNotifications must be used within NotificationProvider');
+    throw new Error('usePingPolling must be used within PingPollingProvider');
   }
   return context;
 }

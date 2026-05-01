@@ -89,10 +89,13 @@
 /* Table Styles */
 .snapshots-table-container {
   background: white;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 8px 8px 0 0;
+  overflow-x: auto;
+  max-height: 600px;
+  overflow-y: auto;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   border: 1px solid #e0e0e0;
+  border-bottom: none;
 }
 
 .snapshots-table {

@@ -24,9 +24,51 @@
 
 .vehicles-list {
   background: #fff;
-  border-radius: 10px;
+  border-radius: 10px 10px 0 0;
   border: 1px solid #eee;
-  overflow: auto;
+  border-bottom: none;
+  overflow-x: auto;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+/* Vehicles Filters */
+.vehicles-filters {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  border: 1px solid #e0e0e0;
+}
+
+.vehicles-filters .filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 150px;
+}
+
+.vehicles-filters .filter-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.vehicles-filters .filter-select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  background: white;
+}
+
+.vehicles-filters .filter-select:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
 
 .vehicles-list table {

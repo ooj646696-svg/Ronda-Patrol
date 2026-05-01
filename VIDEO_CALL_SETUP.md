@@ -5,14 +5,14 @@ This guide will help you set up the complete video calling system for RONDA Patr
 
 ## 📋 Prerequisites Checklist
 
-### ✅ Backend Dependencies
+###  Backend Dependencies
 - [x] Django Channels installed
 - [x] Redis configured in settings
 - [x] WebSocket consumers created
 - [x] ASGI application configured
 - [ ] Redis server running
 
-### ✅ Frontend Dependencies  
+###  Frontend Dependencies  
 - [x] WebRTC dependencies installed (simple-peer, socket.io-client)
 - [x] Video call components created
 - [ ] Mobile app dependencies installed

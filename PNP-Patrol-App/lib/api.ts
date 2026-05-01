@@ -53,13 +53,13 @@ console.log('🔗 [API] Base URL:', BASE_URL);
 api.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem(STORAGE_KEYS.access);
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  console.log(`📤 [API] ${config.method?.toUpperCase()} ${config.url} 🔄`);
+  console.log(` [API] ${config.method?.toUpperCase()} ${config.url} 🔄`);
   return config;
 });
 
 api.interceptors.response.use(
   (res) => {
-    console.log(`✅ [API] ${res.config.method?.toUpperCase()} ${res.config.url} → ${res.status}`);
+    console.log(` [API] ${res.config.method?.toUpperCase()} ${res.config.url} → ${res.status}`);
     return res;
   },
   async (err) => {
@@ -82,7 +82,7 @@ api.interceptors.response.use(
         // Retry the request with the corrected session
         try {
           const response = await api(original);
-          console.log(`✅ [API] Auto-fix successful | ${original?.method?.toUpperCase()} ${original?.url} → ${response.status}`);
+          console.log(` [API] Auto-fix successful | ${original?.method?.toUpperCase()} ${original?.url} → ${response.status}`);
           return response;
         } catch (retryError) {
           console.error('❌ [API] Auto-fix retry failed:', retryError);
@@ -111,7 +111,7 @@ api.interceptors.response.use(
         refreshPromise = axios
           .post(`${BASE_URL}/auth/token/refresh/`, { refresh })
           .then(async ({ data }) => {
-            console.log('✅ [API] Token refreshed successfully');
+            console.log(' [API] Token refreshed successfully');
             await AsyncStorage.setItem(STORAGE_KEYS.access, data.access);
             onRefreshed(data.access);
             return data.access as string;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api/client';
+import { Pagination } from '../components/Pagination';
 import './SnapshotsPage.css';
 
 export function SnapshotsPage() {
@@ -7,6 +8,14 @@ export function SnapshotsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedSnapshot, setSelectedSnapshot] = useState(null);
   const [error, setError] = useState(null);
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    driver: '',
+    branch: '',
+    date: '',
+    status: ''
+  });
 
   useEffect(() => {
     loadSnapshots();
@@ -79,6 +88,40 @@ export function SnapshotsPage() {
     };
   };
 
+  const filteredSnapshots = snapshots.filter((snapshot) => {
+    // Driver filter
+    if (filters.driver && !snapshot.driver_name.toLowerCase().includes(filters.driver.toLowerCase())) {
+      return false;
+    }
+    
+    // Branch filter
+    if (filters.branch && snapshot.branch_name !== filters.branch) {
+      return false;
+    }
+    
+    // Date filter
+    if (filters.date) {
+      const snapshotDate = new Date(snapshot.submitted_at).toISOString().split('T')[0];
+      if (snapshotDate !== filters.date) {
+        return false;
+      }
+    }
+    
+    // Status filter
+    if (filters.status && snapshot.status !== filters.status) {
+      return false;
+    }
+    
+    return true;
+  });
+
+  const handleFilterChange = (filterName, value) => {
+    setFilters(prev => ({ ...prev, [filterName]: value }));
+  };
+
+  // Extract unique branches for filter dropdown
+  const uniqueBranches = [...new Set(snapshots.map(s => s.branch_name).filter(Boolean))];
+
   if (loading) {
     return (
       <div className="snapshots-loading">
@@ -112,87 +155,110 @@ export function SnapshotsPage() {
       <div className="snapshots-filters">
         <div className="filter-group">
           <label>Search Driver:</label>
-          <input type="text" placeholder="Enter driver name..." className="filter-input" />
+          <input 
+            type="text" 
+            placeholder="Enter driver name..." 
+            className="filter-input"
+            value={filters.driver}
+            onChange={(e) => handleFilterChange('driver', e.target.value)}
+          />
         </div>
         <div className="filter-group">
           <label>Branch:</label>
-          <select className="filter-select">
+          <select 
+            className="filter-select"
+            value={filters.branch}
+            onChange={(e) => handleFilterChange('branch', e.target.value)}
+          >
             <option value="">All Branches</option>
-            <option value="main">Main Branch</option>
-            <option value="north">North Branch</option>
-            <option value="south">South Branch</option>
+            {uniqueBranches.map(branch => (
+              <option key={branch} value={branch}>{branch}</option>
+            ))}
           </select>
         </div>
         <div className="filter-group">
-          <label>Date Range:</label>
-          <input type="date" className="filter-input" />
+          <label>Date:</label>
+          <input 
+            type="date" 
+            className="filter-input"
+            value={filters.date}
+            onChange={(e) => handleFilterChange('date', e.target.value)}
+          />
         </div>
         <div className="filter-group">
           <label>Status:</label>
-          <select className="filter-select">
+          <select 
+            className="filter-select"
+            value={filters.status}
+            onChange={(e) => handleFilterChange('status', e.target.value)}
+          >
             <option value="">All Status</option>
-            <option value="completed">Completed</option>
+            <option value="uploaded">Completed</option>
             <option value="pending">Pending Upload</option>
           </select>
         </div>
       </div>
 
       {/* Snapshots Table */}
-      <div className="snapshots-table-container">
-        <table className="snapshots-table">
-          <thead>
-            <tr>
-              <th>Driver Name</th>
-              <th>Branch</th>
-              <th>Vehicle</th>
-              <th>Type</th>
-              <th>Time</th>
-              <th>Date</th>
-              <th>Photos</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {snapshots.map((snapshot) => {
-              const dateTime = formatDateTime(snapshot.submitted_at);
-              return (
-                <tr key={snapshot.id} className="snapshot-row">
-                  <td className="driver-cell">
-                    <div className="driver-info">
-                      <div className="driver-avatar">👤</div>
-                      <span>{snapshot.driver_name}</span>
-                    </div>
-                  </td>
-                  <td>{snapshot.branch_name}</td>
-                  <td>{snapshot.vehicle_plate}</td>
-                  <td>
-                    <span className={`photo-type-badge ${snapshot.photo_type.replace('_', '')}`}>
-                      {snapshot.photo_type === 'pre_shift' ? 'Pre-Shift' : 'Post-Shift'}
-                    </span>
-                  </td>
-                  <td>{dateTime.time}</td>
-                  <td>{dateTime.date}</td>
-                  <td>
-                    <div className="photo-count">
-                      📷 {snapshot.photo_count} photos
-                    </div>
-                  </td>
-                  <td>{getStatusBadge(snapshot.status)}</td>
-                  <td>
-                    <button 
-                      className="action-button view-button"
-                      onClick={() => handleViewPhotos(snapshot)}
-                    >
-                      View Photos
-                    </button>
-                  </td>
+      <Pagination data={filteredSnapshots} itemsPerPage={8}>
+        {(currentSnapshots) => (
+          <div className="snapshots-table-container">
+            <table className="snapshots-table">
+              <thead>
+                <tr>
+                  <th>Driver Name</th>
+                  <th>Branch</th>
+                  <th>Vehicle</th>
+                  <th>Type</th>
+                  <th>Time</th>
+                  <th>Date</th>
+                  <th>Photos</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {currentSnapshots.map((snapshot) => {
+                  const dateTime = formatDateTime(snapshot.submitted_at);
+                  return (
+                    <tr key={snapshot.id} className="snapshot-row">
+                      <td className="driver-cell">
+                        <div className="driver-info">
+                          <div className="driver-avatar">👤</div>
+                          <span>{snapshot.driver_name}</span>
+                        </div>
+                      </td>
+                      <td>{snapshot.branch_name}</td>
+                      <td>{snapshot.vehicle_plate}</td>
+                      <td>
+                        <span className={`photo-type-badge ${snapshot.photo_type.replace('_', '')}`}>
+                          {snapshot.photo_type === 'pre_shift' ? 'Pre-Shift' : 'Post-Shift'}
+                        </span>
+                      </td>
+                      <td>{dateTime.time}</td>
+                      <td>{dateTime.date}</td>
+                      <td>
+                        <div className="photo-count">
+                          📷 {snapshot.photo_count} photos
+                        </div>
+                      </td>
+                      <td>{getStatusBadge(snapshot.status)}</td>
+                      <td>
+                        <button 
+                          className="action-button view-button"
+                          onClick={() => handleViewPhotos(snapshot)}
+                        >
+                          View Photos
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Pagination>
 
       {/* Photos Modal */}
       {selectedSnapshot && (

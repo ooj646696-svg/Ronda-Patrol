@@ -42,7 +42,7 @@ apiClient.interceptors.request.use(
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    console.log(`📤 [API] ${config.method?.toUpperCase()} ${config.url}`);
+    console.log(` [API] ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },
   (error: unknown) => {
@@ -53,7 +53,7 @@ apiClient.interceptors.request.use(
 // Response interceptor - Handle errors and token refresh
 apiClient.interceptors.response.use(
   (response: any) => {
-    console.log(`✅ [API] ${response.config.method?.toUpperCase()} ${response.config.url} → ${response.status}`);
+    console.log(` [API] ${response.config.method?.toUpperCase()} ${response.config.url} → ${response.status}`);
     return response;
   },
   async (error: AxiosError) => {
@@ -83,7 +83,7 @@ apiClient.interceptors.response.use(
         refreshPromise = axios
           .post(`${config.apiUrl}/auth/token/refresh/`, { refresh })
           .then(async ({ data }: { data: { access: string } }) => {
-            console.log('✅ [API] Token refreshed successfully');
+            console.log(' [API] Token refreshed successfully');
             await AsyncStorage.setItem(STORAGE_KEYS.access, data.access);
             onRefreshed(data.access);
             return data.access as string;

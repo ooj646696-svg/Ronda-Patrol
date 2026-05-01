@@ -75,7 +75,7 @@ def custom_exception_handler(exc, context):
                     is_active=True
                 ).first()
                 if active_session:
-                    print(f"✅ [Auto-Fix] Found active session {active_session.id}, updating request data")
+                    print(f" [Auto-Fix] Found active session {active_session.id}, updating request data")
                     # Update the request data with the correct session
                     if hasattr(request, 'data') and request.data:
                         request.data['session'] = active_session.id
@@ -1401,6 +1401,64 @@ class PingRespondView(APIView):
                 ping.response_location_lon = longitude
             ping.save()
 
+            # Create incident from ping response (only for Emergency/Assistance)
+            try:
+                # Only create incidents for Emergency or Assistance responses
+                response_lower = response.lower()
+                if response_lower in ['emergency', 'needs assistance']:
+                    # Get driver's current session
+                    current_session = DriverSession.objects.filter(
+                        driver=request.user,
+                        is_active=True
+                    ).first()
+
+                    # Format description based on response type
+                    if response_lower == 'emergency':
+                        description = '[EMERGENCY] Emergency ping response from driver'
+                    elif response_lower == 'needs assistance':
+                        description = '[ASSISTANCE] Assistance requested by driver'
+
+                    # Get driver's latest GPS location if ping response location is not provided
+                    incident_latitude = latitude
+                    incident_longitude = longitude
+                    
+                    if not incident_latitude or not incident_longitude:
+                        try:
+                            from .models import GPSLog
+                            latest_gps = GPSLog.objects.filter(
+                                session=current_session
+                            ).order_by('-timestamp').first()
+                            
+                            if latest_gps:
+                                incident_latitude = latest_gps.latitude
+                                incident_longitude = latest_gps.longitude
+                                print(f" [PingResponse] Using latest GPS location: {incident_latitude}, {incident_longitude}")
+                            else:
+                                print(f" [PingResponse] No GPS location found, using ping response location")
+                        except Exception as gps_error:
+                            print(f" [PingResponse] Error getting GPS location: {gps_error}")
+
+                    # Create incident
+                    incident_data = {
+                        'session': current_session.id if current_session else None,
+                        'description': description,
+                        'latitude': incident_latitude,
+                        'longitude': incident_longitude,
+                        'created_at': timezone.now()
+                    }
+
+                    incident_serializer = IncidentReportSerializer(data=incident_data)
+                    if incident_serializer.is_valid():
+                        incident_serializer.save()
+                        print(f" [PingResponse] Created incident from ping: {description}")
+                    else:
+                        print(f" [PingResponse] Failed to create incident: {incident_serializer.errors}")
+                else:
+                    print(f" [PingResponse] No incident created for response: {response}")
+
+            except Exception as e:
+                print(f" [PingResponse] Error creating incident: {e}")
+
             return Response(
                 {'message': 'Response recorded successfully.'},
                 status=status.HTTP_200_OK
@@ -1429,6 +1487,43 @@ class PingActiveView(APIView):
 
         serializer = PingRequestSerializer(pings, many=True)
         return Response(serializer.data)
+
+
+class PendingPingsView(APIView):
+    """Get pending pings for the authenticated driver (for polling service)."""
+    permission_classes = [IsDriver]
+
+    def get(self, request):
+        user = request.user
+        
+        # Get the 'since' parameter to filter pings created after this timestamp
+        since_str = request.query_params.get('since')
+        queryset = PingRequest.objects.filter(
+            driver=user,
+            status__in=[PingStatus.SENT, PingStatus.DELIVERED]
+        )
+        
+        if since_str:
+            try:
+                from datetime import datetime
+                since_dt = datetime.fromisoformat(since_str.replace('Z', '+00:00'))
+                queryset = queryset.filter(sent_at__gt=since_dt)
+            except (ValueError, TypeError):
+                # If the timestamp is invalid, just return all pending pings
+                pass
+        
+        pings = queryset.order_by('-sent_at')
+        
+        # Return simplified format for the polling service
+        result = []
+        for ping in pings:
+            result.append({
+                'id': ping.id,
+                'message': f'Ping from {ping.sender.username}' if ping.sender else 'Ping received',
+                'created_at': ping.sent_at.isoformat(),
+            })
+        
+        return Response(result)
 
 
 # ---------- Video Call ----------

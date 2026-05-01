@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, Circle } from 'react-native-maps';
+import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useSession } from '../../src/hooks/useSession';
 import { useLocation } from '../../src/hooks/useLocation';
@@ -19,12 +19,94 @@ import { offlineGpsQueueService } from '../../src/services/offlineGpsQueue';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { reverseGeocode, getShortLocationName, GeocodedAddress } from '../../src/services/geocoding';
 
+// Google Maps Dark Mode Style
+const darkMapStyle = [
+  { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
+  {
+    featureType: 'administrative.locality',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#d59563' }],
+  },
+  {
+    featureType: 'poi',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#d59563' }],
+  },
+  {
+    featureType: 'poi.park',
+    elementType: 'geometry',
+    stylers: [{ color: '#263c3f' }],
+  },
+  {
+    featureType: 'poi.park',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#6b9a76' }],
+  },
+  {
+    featureType: 'road',
+    elementType: 'geometry',
+    stylers: [{ color: '#38414e' }],
+  },
+  {
+    featureType: 'road',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#212a37' }],
+  },
+  {
+    featureType: 'road',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#9ca5b3' }],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry',
+    stylers: [{ color: '#746855' }],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#1f2835' }],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#f3d19c' }],
+  },
+  {
+    featureType: 'transit',
+    elementType: 'geometry',
+    stylers: [{ color: '#2f3948' }],
+  },
+  {
+    featureType: 'transit.station',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#d59563' }],
+  },
+  {
+    featureType: 'water',
+    elementType: 'geometry',
+    stylers: [{ color: '#17263c' }],
+  },
+  {
+    featureType: 'water',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#515c6d' }],
+  },
+  {
+    featureType: 'water',
+    elementType: 'labels.text.stroke',
+    stylers: [{ color: '#17263c' }],
+  },
+];
+
 export default function HomeScreen() {
   const mapRef = useRef<MapView>(null);
   const { colors, theme } = useTheme();
   const { user, logout } = useAuth();
   const { session, hasActiveSession, startSession, stopSession, loading } = useSession();
-  const { currentLocation, startTracking, stopTracking, startBackgroundTracking, stopBackgroundTracking, isBackgroundTracking } = useLocation();
+  const { currentLocation, getCurrentLocation, startTracking, stopTracking, startBackgroundTracking, stopBackgroundTracking, isBackgroundTracking } = useLocation();
   const router = useRouter();
   const [showVehicleSelect, setShowVehicleSelect] = useState(false);
   const { triggerEmergency } = useEmergency();
@@ -197,14 +279,31 @@ export default function HomeScreen() {
     );
   };
 
-  const handleCenterLocation = () => {
+  const handleCenterLocation = async () => {
+    console.log('Center location button pressed');
+    
+    // If no current location, try to get it
+    if (!currentLocation) {
+      console.log('No current location, getting new location...');
+      const location = await getCurrentLocation();
+      if (!location) {
+        console.log('Failed to get location');
+        Alert.alert('Location Error', 'Unable to get your current location. Please check GPS settings.');
+        return;
+      }
+    }
+    
     if (currentLocation && mapRef.current) {
+      console.log('Centering map to location:', currentLocation);
       mapRef.current.animateToRegion({
         latitude: currentLocation.latitude,
         longitude: currentLocation.longitude,
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       }, 500);
+    } else {
+      console.log('Still no location available');
+      Alert.alert('Location Error', 'No location data available. Please ensure location services are enabled.');
     }
   };
 
@@ -227,6 +326,8 @@ export default function HomeScreen() {
             followsUserLocation={true}
             showsMyLocationButton={false}
             showsCompass={true}
+            provider={PROVIDER_GOOGLE}
+            customMapStyle={theme === 'dark' ? darkMapStyle : []}
           >
             {currentLocation && (
               <>
@@ -257,7 +358,7 @@ export default function HomeScreen() {
           {/* Floating Top Bar - Status & End Shift */}
           <View style={styles.floatingTopBar}>
             <View>
-              <Text style={[styles.greetingText, { color: colors.text }]}>Hi, {user?.username || 'Driver'}!</Text>
+              {/* <Text style={[styles.greetingText, { color: colors.text }]}>Hi, {user?.username || 'Driver'}!</Text> */}
               <View style={styles.patrolStatusBadge}>
                 <View style={styles.pulseDot} />
                 <Text style={styles.patrolStatusText}>Patrol Active</Text>

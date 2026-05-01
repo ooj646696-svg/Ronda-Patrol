@@ -205,7 +205,7 @@ export async function sendTestNotification(): Promise<void> {
           sound: 'default',
           vibrationPattern: [0, 250, 250, 250],
         });
-        console.log('✅ Notification channel set up');
+        console.log(' Notification channel set up');
       } catch (channelError) {
         console.error('⚠️ Failed to set notification channel:', channelError);
       }
