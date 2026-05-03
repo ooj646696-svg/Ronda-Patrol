@@ -14,6 +14,7 @@ export interface LocationData {
   accuracy?: number;
   speed?: number;
   altitude?: number;
+  heading?: number;
   timestamp: string;
 }
 
@@ -47,9 +48,13 @@ export class LocationService {
       newLocation.longitude
     );
 
-    // If movement is less than 3 meters, consider it drift
-    if (distance < 3) {
-      console.log('Skipping update - minimal movement:', distance);
+    // Check time difference from last location
+    const timeDiff = new Date(newLocation.timestamp).getTime() - new Date(this.lastLocation.timestamp).getTime();
+    
+    // If movement is less than 1 meter AND time difference is less than 10 seconds, consider it drift
+    // This allows more frequent updates for real-time tracking while still filtering out noise
+    if (distance < 1 && timeDiff < 10000) {
+      console.log('Skipping update - minimal movement and recent update:', distance, 'm, time:', timeDiff, 'ms');
       return false;
     }
 
@@ -157,6 +162,7 @@ export class LocationService {
             accuracy: location.coords.accuracy || undefined,
             speed: location.coords.speed || undefined,
             altitude: location.coords.altitude || undefined,
+            heading: location.coords.heading || undefined,
             timestamp: new Date().toISOString(),
           };
 
@@ -223,6 +229,7 @@ export class LocationService {
             accuracy: location.coords.accuracy || undefined,
             speed: location.coords.speed || undefined,
             altitude: location.coords.altitude || undefined,
+            heading: location.coords.heading || undefined,
             timestamp: new Date().toISOString(),
           };
 
@@ -294,6 +301,7 @@ export class LocationService {
         accuracy: location.coords.accuracy ? Math.round(location.coords.accuracy * 100) / 100 : undefined,
         speed: location.coords.speed ? Math.round(location.coords.speed * 100) / 100 : undefined,
         altitude: location.coords.altitude ? Math.round(location.coords.altitude * 10) / 10 : undefined,
+        heading: location.coords.heading ? Math.round(location.coords.heading * 100) / 100 : undefined,
       });
       
       console.log('Background GPS data processed (online/offline handled automatically)');

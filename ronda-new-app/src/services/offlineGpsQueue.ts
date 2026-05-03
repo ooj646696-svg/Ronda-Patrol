@@ -93,6 +93,7 @@ export class OfflineGpsQueueService {
               accuracy: entry.accuracy,
               speed: entry.speed,
               altitude: entry.altitude,
+              heading: entry.heading,
             });
             console.log('GPS data sent immediately (online)');
           } catch (error) {
@@ -163,6 +164,7 @@ export class OfflineGpsQueueService {
               accuracy: entry.accuracy,
               speed: entry.speed,
               altitude: entry.altitude,
+              heading: entry.heading,
             });
             
             uploadedIds.push(entry.id);

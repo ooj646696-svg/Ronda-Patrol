@@ -15,6 +15,7 @@ export interface OfflineGpsEntry {
   accuracy?: number;
   speed?: number;
   altitude?: number;
+  heading?: number;
   timestamp: string;
   createdAt: string;
 }

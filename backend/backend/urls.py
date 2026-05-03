@@ -24,5 +24,5 @@ urlpatterns = [
     path('api/', include('patrol_api.urls')),
     path('api/vehicle-photos/', include('apps.vehicles.urls')),
 ]
-if settings.DEBUG and getattr(settings, 'MEDIA_ROOT', None):
+if getattr(settings, 'MEDIA_ROOT', None):
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

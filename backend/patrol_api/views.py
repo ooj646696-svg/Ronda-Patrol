@@ -16,8 +16,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView, exception_handler
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated as DRFIsAuthenticated
+from django.core.cache import cache
 
-from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport, PingRequest, PingStatus, VideoCall
+from .models import Branch, User, Vehicle, DriverSession, GPSLog, IncidentReport, PingRequest, PingStatus
 from .notifications import send_ping_notification
 from .gps_validation import gps_validator, GPSPoint  # Import GPS validation utilities
 from .serializers import (
@@ -32,8 +33,6 @@ from .serializers import (
     PingRequestSerializer,
     PingSendSerializer,
     PingResponseSerializer,
-    VideoCallSerializer,
-    VideoCallInitiateSerializer,
     UserLogoutSerializer,
 )
 from .permissions import (
@@ -61,14 +60,14 @@ def custom_exception_handler(exc, context):
     if isinstance(exc, ValidationError) and response is not None:
         request = context.get('request')
         
-        print(f"❌ [Validation Error] {exc.detail}")
+        print(f"[Validation Error] {exc.detail}")
         if request:
-            print(f"❌ [Validation Error] Request data: {getattr(request, 'data', 'N/A')}")
-            print(f"❌ [Validation Error] User: {request.user} ({request.user.username})")
+            print(f"[Validation Error] Request data: {getattr(request, 'data', 'N/A')}")
+            print(f"[Validation Error] User: {request.user} ({request.user.username})")
         
         # Auto-fix invalid session errors
         if 'session' in exc.detail and any('does not exist' in str(error) for error in exc.detail['session']):
-            print(f"🔧 [Auto-Fix] Invalid session detected, attempting to find active session for user")
+            print(f"[Auto-Fix] Invalid session detected, attempting to find active session for user")
             if request and request.user.role == 'DRIVER':
                 active_session = DriverSession.objects.filter(
                     driver=request.user, 
@@ -469,6 +468,30 @@ class DriverSessionViewSet(viewsets.ModelViewSet):
         session.save()
         return Response(DriverSessionSerializer(session).data)
 
+    @action(detail=True, methods=['patch'], url_path='offline-status')
+    def update_offline_status(self, request, pk=None):
+        """Update offline status for a session (mobile app only)."""
+        session = self.get_object()
+        
+        # Only drivers can update their own session's offline status
+        if request.user.role != 'DRIVER' or session.driver_id != request.user.id:
+            return Response({'detail': 'You can only update your own session status.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        if not session.is_active:
+            return Response({'detail': 'Session is not active.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        is_offline = request.data.get('is_offline', False)
+        if not isinstance(is_offline, bool):
+            return Response({'detail': 'is_offline must be a boolean value.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        session.is_app_offline = is_offline
+        session.save()
+        
+        return Response({
+            'is_app_offline': session.is_app_offline,
+            'message': f'Session offline status updated to {"offline" if is_offline else "online"}.'
+        })
+
 
 class LiveLocationsView(APIView):
     """
@@ -479,6 +502,14 @@ class LiveLocationsView(APIView):
 
     def get(self, request):
         try:
+            # Cache key based on user role and branch
+            cache_key = f"live_locations_{request.user.role}_{request.user.branch_id or 'all'}"
+            
+            # Try to get from cache first (3-second cache)
+            cached_result = cache.get(cache_key)
+            if cached_result:
+                return Response(cached_result)
+            
             user = request.user
             if user.role == 'SUPER_ADMIN':
                 sessions = DriverSession.objects.filter(is_active=True).select_related('driver', 'vehicle', 'branch')
@@ -497,7 +528,7 @@ class LiveLocationsView(APIView):
                     recent_gps = GPSLog.objects.filter(
                         session=s,
                         timestamp__gte=ten_minutes_ago
-                    ).order_by('timestamp')
+                    ).order_by('-timestamp')
 
                     # Filter GPS points through validation - only show valid points
                     valid_gps_points = []
@@ -531,12 +562,15 @@ class LiveLocationsView(APIView):
                                 point_data['accuracy'] = float(g.accuracy)
                             if hasattr(g, 'speed') and g.speed:
                                 point_data['speed'] = float(g.speed)
+                            if hasattr(g, 'heading') and g.heading:
+                                point_data['heading'] = float(g.heading)
                             
                             valid_gps_points.append({
                                 'latitude': lat,
                                 'longitude': lon,
                                 'timestamp': g.timestamp.isoformat(),
                                 'accuracy': float(g.accuracy) if hasattr(g, 'accuracy') and g.accuracy else None,
+                                'heading': float(g.heading) if hasattr(g, 'heading') and g.heading else None,
                             })
                             last_valid_gps = g
                             
@@ -552,7 +586,9 @@ class LiveLocationsView(APIView):
                         print(f" [LiveLocations] Session {s.id}: {len(valid_gps_points)} valid GPS points")
 
                     last_gps = last_valid_gps
+                    is_stale = False
                     if last_gps is None:
+                        # Fallback: get any last GPS regardless of time (but mark as stale)
                         last_gps = GPSLog.objects.filter(session=s).order_by('-timestamp').first()
                         if last_gps is not None:
                             try:
@@ -560,6 +596,12 @@ class LiveLocationsView(APIView):
                                 lon = float(last_gps.longitude)
                                 if not (4.0 <= lat <= 21.0 and 112.0 <= lon <= 131.0):
                                     last_gps = None
+                                else:
+                                    # Check if data is stale (older than 10 minutes)
+                                    time_diff = (timezone.now() - last_gps.timestamp).total_seconds()
+                                    is_stale = time_diff > 600  # 10 minutes
+                                    if is_stale:
+                                        print(f" [LiveLocations] Session {s.id}: Using stale GPS from {time_diff/60:.1f} minutes ago")
                             except (ValueError, TypeError):
                                 last_gps = None
 
@@ -579,6 +621,11 @@ class LiveLocationsView(APIView):
                             'responded_at': recent_ping.responded_at.isoformat() if recent_ping.responded_at else None,
                         }
 
+                    # Calculate last seen minutes
+                    last_seen_minutes = None
+                    if last_gps:
+                        last_seen_minutes = round((timezone.now() - last_gps.timestamp).total_seconds() / 60, 1)
+                    
                     results.append({
                         'session_id': s.id,
                         'driver': s.driver.username,
@@ -588,6 +635,10 @@ class LiveLocationsView(APIView):
                         'latitude': float(last_gps.latitude) if last_gps else None,
                         'longitude': float(last_gps.longitude) if last_gps else None,
                         'timestamp': last_gps.timestamp.isoformat() if last_gps else None,
+                        'heading': float(last_gps.heading) if last_gps and last_gps.heading else None,
+                        'is_app_offline': s.is_app_offline,
+                        'is_stale': is_stale,
+                        'last_seen_minutes': last_seen_minutes,
                         'recent_points': valid_gps_points,
                         'total_points': len(valid_gps_points),
                         'recent_ping': ping_info,
@@ -603,10 +654,14 @@ class LiveLocationsView(APIView):
                         'latitude': None,
                         'longitude': None,
                         'timestamp': None,
+                        'is_app_offline': s.is_app_offline,
                         'recent_points': [],
                         'total_points': 0,
                     })
 
+            # Cache the result for 3 seconds to reduce database load
+            cache.set(cache_key, results, 3)
+            
             return Response(results)
 
         except Exception as e:
@@ -1027,6 +1082,12 @@ class GPSLogViewSet(viewsets.ModelViewSet):
         try:
             serializer.save(**extra_data)
             print(f" [GPS] Point saved | Score: {validation_result.accuracy_score:.2f} | Acc: {point.accuracy or 'N/A'}m | Speed: {point.speed or 'N/A'} m/s")
+            
+            # Auto-clear offline status when we receive GPS data (driver is back online)
+            if session.is_app_offline:
+                session.is_app_offline = False
+                session.save(update_fields=['is_app_offline'])
+                print(f" [GPS] Auto-cleared offline status for session {session.id} (driver back online)")
         except Exception as save_error:
             print(f" [GPS] Failed to save GPS point: {save_error}")
             # Try saving without validation metadata (in case fields don't exist)
@@ -1526,133 +1587,3 @@ class PendingPingsView(APIView):
         return Response(result)
 
 
-# ---------- Video Call ----------
-class VideoCallViewSet(viewsets.ModelViewSet):
-    """
-    Video call management for admin-to-driver communication.
-    - Super Admin/Branch Admin: can initiate calls to drivers in their scope
-    - All users: can view their own call history
-    """
-    serializer_class = VideoCallSerializer
-    permission_classes = [DRFIsAuthenticated]
-    
-    def get_queryset(self):
-        user = self.request.user
-        if user.role == 'SUPER_ADMIN':
-            return VideoCall.objects.all().select_related('initiator', 'recipient', 'session')
-        elif user.role == 'BRANCH_ADMIN':
-            # Branch admins can see calls involving their branch drivers
-            return VideoCall.objects.filter(
-                models.Q(recipient__branch=user.branch) | models.Q(initiator=user)
-            ).select_related('initiator', 'recipient', 'session')
-        else:
-            # Drivers can only see their own calls
-            return VideoCall.objects.filter(
-                models.Q(initiator=user) | models.Q(recipient=user)
-            ).select_related('initiator', 'recipient', 'session')
-    
-    @action(detail=False, methods=['post'])
-    def initiate(self, request):
-        """Initiate a video call to a driver"""
-        if request.user.role not in ['SUPER_ADMIN', 'BRANCH_ADMIN']:
-            return Response(
-                {'detail': 'Only admins can initiate video calls.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        serializer = VideoCallInitiateSerializer(data=request.data)
-        if serializer.is_valid():
-            recipient_id = serializer.validated_data['recipient_id']
-            session_id = serializer.validated_data.get('session_id')
-            
-            # Check if recipient is in scope for branch admin
-            if request.user.role == 'BRANCH_ADMIN':
-                recipient = User.objects.get(id=recipient_id)
-                if recipient.branch_id != request.user.branch_id:
-                    return Response(
-                        {'detail': 'Cannot call driver outside your branch.'},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
-            
-            # Create call record
-            call = VideoCall.objects.create(
-                initiator=request.user,
-                recipient_id=recipient_id,
-                session_id=session_id,
-                status='RINGING'
-            )
-            
-            return Response(
-                VideoCallSerializer(call).data,
-                status=status.HTTP_201_CREATED
-            )
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    @action(detail=True, methods=['post'])
-    def accept(self, request, pk=None):
-        """Accept a video call"""
-        call = self.get_object()
-        
-        if call.recipient != request.user:
-            return Response(
-                {'detail': 'Only call recipient can accept the call.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if call.status != 'RINGING':
-            return Response(
-                {'detail': 'Call cannot be accepted in current status.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        call.status = 'ACTIVE'
-        call.save()
-        
-        return Response({'status': 'Call accepted'})
-    
-    @action(detail=True, methods=['post'])
-    def reject(self, request, pk=None):
-        """Reject a video call"""
-        call = self.get_object()
-        
-        if call.recipient != request.user:
-            return Response(
-                {'detail': 'Only call recipient can reject the call.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if call.status != 'RINGING':
-            return Response(
-                {'detail': 'Call cannot be rejected in current status.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        call.status = 'REJECTED'
-        call.ended_at = timezone.now()
-        call.save()
-        
-        return Response({'status': 'Call rejected'})
-    
-    @action(detail=True, methods=['post'])
-    def end(self, request, pk=None):
-        """End a video call"""
-        call = self.get_object()
-        
-        if call.initiator != request.user and call.recipient != request.user:
-            return Response(
-                {'detail': 'Only call participants can end the call.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if call.status not in ['RINGING', 'ACTIVE']:
-            return Response(
-                {'detail': 'Call cannot be ended in current status.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        call.status = 'ENDED'
-        call.ended_at = timezone.now()
-        call.save()
-        
-        return Response({'status': 'Call ended'})

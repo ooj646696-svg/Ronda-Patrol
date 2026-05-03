@@ -297,6 +297,15 @@ export default function HomeScreen() {
           speed: speed ? `${(speed * 3.6).toFixed(1)}km/h` : 'N/A',
           timestamp 
         });
+        
+        // Notify backend we're back online if we were offline
+        try {
+          await ronda.sessions.updateOfflineStatus(sessionId, false);
+          console.log('📱 Notified backend: Driver is ONLINE');
+        } catch (offlineError) {
+          // Don't fail if offline status update fails
+          console.log('⚠️ Could not update offline status (non-critical):', offlineError);
+        }
       } catch (error) {
         console.log('📦 GPS send failed, queuing data:', { 
           sessionId, 
@@ -324,6 +333,15 @@ export default function HomeScreen() {
         const q = await getQueue();
         setQueuedCount(q.length);
         console.log('📋 Queue size after adding:', q.length);
+        
+        // Notify backend we're offline due to network failure
+        try {
+          await ronda.sessions.updateOfflineStatus(sessionId, true);
+          console.log('📴 Notified backend: Driver is OFFLINE (network issue)');
+        } catch (offlineError) {
+          // Don't fail if offline status update fails - we're already offline anyway
+          console.log('⚠️ Could not update offline status (non-critical):', offlineError);
+        }
       }
     },
     []

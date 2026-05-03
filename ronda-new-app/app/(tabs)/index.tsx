@@ -16,6 +16,8 @@ import { EmergencyOverlay } from '../../src/components/EmergencyOverlay';
 import { useEmergency } from '../../src/contexts/EmergencyContext';
 import { useNetworkConnectivity } from '../../src/services/networkConnectivity';
 import { offlineGpsQueueService } from '../../src/services/offlineGpsQueue';
+import { offlineStatusSyncService } from '../../src/services/offlineStatusSync';
+import { mobileWebSocketService } from '../../src/services/websocketService';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { reverseGeocode, getShortLocationName, GeocodedAddress } from '../../src/services/geocoding';
 import { toastService } from '../../src/services/toast';
@@ -115,6 +117,7 @@ export default function HomeScreen() {
   const [offlineQueueStats, setOfflineQueueStats] = useState({ totalEntries: 0, isOnline: true, isSyncing: false });
   const [locationName, setLocationName] = useState<string>('Locating...');
   const [addressData, setAddressData] = useState<GeocodedAddress | null>(null);
+  const [websocketConnected, setWebsocketConnected] = useState<boolean>(false);
 
   const mapRegion = useMemo(() => {
     const region = {
@@ -172,15 +175,53 @@ export default function HomeScreen() {
       if (session.id) {
         startBackgroundTracking(session.id);
       }
+      
+      // Start offline status sync
+      offlineStatusSyncService.startMonitoring(session.id);
+      
+      // Start WebSocket connection for real-time GPS updates
+      const startWebSocket = async () => {
+        try {
+          // Get authentication token from API client
+          const { getAccessToken } = await import('../../src/api/client');
+          const token = await getAccessToken();
+          
+          if (!token) {
+            console.error('No authentication token available for WebSocket connection');
+            return;
+          }
+          
+          console.log('Using token for WebSocket:', token.substring(0, 10) + '...');
+          
+          const connected = await mobileWebSocketService.connect(
+            session.id,
+            token,
+            (status) => {
+              setWebsocketConnected(status.connected);
+              console.log('WebSocket status:', status);
+            }
+          );
+          console.log('WebSocket connection result:', connected);
+        } catch (error) {
+          console.error('Failed to start WebSocket:', error);
+        }
+      };
+      startWebSocket();
     } else {
       console.log('GPS tracking stopped');
       stopTracking();
       stopBackgroundTracking();
+      offlineStatusSyncService.stopMonitoring();
+      mobileWebSocketService.disconnect();
+      setWebsocketConnected(false);
     }
 
     return () => {
       stopTracking();
       stopBackgroundTracking();
+      offlineStatusSyncService.stopMonitoring();
+      mobileWebSocketService.disconnect();
+      setWebsocketConnected(false);
     };
   }, [hasActiveSession, session, startTracking, stopTracking, startBackgroundTracking, stopBackgroundTracking]);
 
@@ -213,6 +254,7 @@ export default function HomeScreen() {
             accuracy: currentLocation.accuracy ? Math.round(currentLocation.accuracy * 100) / 100 : undefined,
             speed: currentLocation.speed ? Math.round(currentLocation.speed * 100) / 100 : undefined,
             altitude: currentLocation.altitude ? Math.round(currentLocation.altitude * 10) / 10 : undefined,
+            heading: currentLocation.heading ? Math.round(currentLocation.heading * 100) / 100 : undefined,
           });
         } catch (error: any) {
           // Don't log 400 errors (session ended) as they're expected

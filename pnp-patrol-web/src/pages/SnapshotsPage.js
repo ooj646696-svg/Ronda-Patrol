@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api from '../api/client';
+import api, { getMediaUrl } from '../api/client';
 import { Pagination } from '../components/Pagination';
 import './SnapshotsPage.css';
 
@@ -280,9 +280,9 @@ export function SnapshotsPage() {
                 {selectedSnapshot.photos && selectedSnapshot.photos.length > 0 ? (
                   selectedSnapshot.photos.map((photo) => (
                     <div key={photo.id} className="photo-item">
-                      {photo.image_url ? (
+                      {photo.image_url || photo.image ? (
                         <img 
-                          src={photo.image_url} 
+                          src={photo.image_url || getMediaUrl(photo.image)} 
                           alt={photo.shot_type}
                           className="photo-image"
                           onError={(e) => {

@@ -94,6 +94,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'backend.urls'
+ASGI_APPLICATION = 'backend.asgi.application'
 
 TEMPLATES = [
     {
@@ -115,14 +116,23 @@ ASGI_APPLICATION = 'patrol_api.asgi.application'
 
 # ─── Channel Layers (Redis) ───────────────────────────────────────────────────
 
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            'hosts': [os.environ.get('REDIS_URL', 'redis://localhost:6379')],
+_redis_url = os.environ.get('REDIS_URL')
+
+if DEBUG and not _redis_url:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
         },
-    },
-}
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [_redis_url or 'redis://localhost:6379'],
+            },
+        },
+    }
 
 
 # ─── Database ─────────────────────────────────────────────────────────────────

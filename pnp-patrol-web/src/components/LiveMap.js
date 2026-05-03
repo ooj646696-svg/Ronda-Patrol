@@ -5,6 +5,7 @@ import * as ronda from '../api/ronda';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from './Toast';
 import { reverseGeocode, getShortLocationName } from '../utils/geocoding';
+import { websocketService } from '../services/websocketService';
 import 'leaflet/dist/leaflet.css';
 import './LiveMap.css';
 
@@ -12,8 +13,11 @@ const DEFAULT_CENTER = [12.95, 121.1]; // San Francisco/Mulanay area - southern 
 const DEFAULT_ZOOM = 10;
 const MIN_ZOOM = 9; // Don't zoom out too far
 const MAX_ZOOM = 18; // Allow close zoom for detail
-const REFRESH_MS = 5000; // Base interval (will be adapted)
-const SMART_POLL_INTERVAL = 15000; // 15 seconds when no active drivers
+const ACTIVE_REFRESH_MS = 5000; // 5 seconds for active drivers (moving)
+const IDLE_REFRESH_MS = 10000; // 10 seconds for idle drivers (stationary)
+const NO_DRIVERS_REFRESH_MS = 15000; // 15 seconds when no drivers
+const ERROR_RETRY_INTERVAL = 30000; // 30 seconds on error
+const MAX_RETRY_INTERVAL = 60000; // 1 minute max retry interval
 
 // Map bounds - restrict to Philippines (roughly)
 // [south, west], [north, east]
@@ -104,17 +108,14 @@ function SidebarLocationName({ latitude, longitude }) {
 }
 
 // Create custom marker icon with driver initials
-function createDriverIcon(driverName, vehiclePlate, hasEmergency, hasAssistance, isOffline = false) {
+function createDriverIcon(driverName, vehiclePlate, hasEmergency, hasAssistance, isOffline = false, heading = null) {
   const colorIndex = getDriverColorIndex(driverName);
   const colors = DRIVER_COLORS[colorIndex];
   const initials = getDriverInitials(driverName);
 
-  // Use grey colors if offline, otherwise use emergency/assistance colors if active
+  // Use emergency/assistance colors if active, otherwise use driver colors
   let bgColor, borderColor;
-  if (isOffline) {
-    bgColor = '#808080'; // Grey for offline
-    borderColor = '#606060';
-  } else if (hasEmergency) {
+  if (hasEmergency) {
     bgColor = '#c62828';
     borderColor = '#8e0000';
   } else if (hasAssistance) {
@@ -125,9 +126,33 @@ function createDriverIcon(driverName, vehiclePlate, hasEmergency, hasAssistance,
     borderColor = colors.border;
   }
 
+  // Calculate arrow position based on heading
+  let arrowElement = '';
+  if (heading !== null && heading !== undefined) {
+    // Convert heading to radians for forward pointing arrow
+    // 0° = North (up), 90° = East (right), 180° = South (down), 270° = West (left)
+    const headingRad = (heading - 90) * Math.PI / 180; // Convert to standard math coordinates
+    const arrowLength = 14; // Slightly longer for better visibility
+    const arrowX = 20 + Math.cos(headingRad) * arrowLength;
+    const arrowY = 24 + Math.sin(headingRad) * arrowLength;
+    
+    // Create arrow with line and triangular head pointing forward
+    const arrowHeadSize = 4;
+    const headAngle1 = headingRad + (2.5 * Math.PI / 4); // 45 degrees left of arrow direction
+    const headAngle2 = headingRad - (2.5 * Math.PI / 4); // 45 degrees right of arrow direction
+    
+    const headX1 = arrowX - Math.cos(headAngle1) * arrowHeadSize;
+    const headY1 = arrowY - Math.sin(headAngle1) * arrowHeadSize;
+    const headX2 = arrowX - Math.cos(headAngle2) * arrowHeadSize;
+    const headY2 = arrowY - Math.sin(headAngle2) * arrowHeadSize;
+    
+    arrowElement = `<line x1="20" y1="24" x2="${arrowX}" y2="${arrowY}" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+                    <polygon points="${arrowX},${arrowY} ${headX1},${headY1} ${headX2},${headY2}" fill="white"/>`;
+  }
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48">
     <circle cx="20" cy="24" r="18" fill="${bgColor}" stroke="${borderColor}" stroke-width="3"/>
-    ${isOffline ? '<circle cx="32" cy="16" r="6" fill="#ff4444" stroke="#cc0000" stroke-width="1"/><text x="32" y="20" text-anchor="middle" fill="white" font-size="8" font-weight="bold">!</text>' : ''}
+    ${arrowElement}
     <text x="20" y="28" text-anchor="middle" fill="white" font-size="12" font-weight="bold" font-family="Arial, sans-serif">${initials}</text>
   </svg>`;
 
@@ -138,7 +163,7 @@ function createDriverIcon(driverName, vehiclePlate, hasEmergency, hasAssistance,
     iconSize: [40, 48],
     iconAnchor: [20, 48],
     popupAnchor: [0, -48],
-    className: `custom-driver-marker ${isOffline ? 'offline' : hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`,
+    className: `custom-driver-marker ${hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`,
   });
 }
 
@@ -558,34 +583,8 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
           const hasEmergency = driverEmergencies.length > 0;
           const hasAssistance = driverAssistance.length > 0;
 
-          // Simple offline detection: no recent GPS data (network issue)
-          let isOffline = false;
-          
-          // Check if driver has GPS coordinates
-          if (!loc.latitude || !loc.longitude) {
-            isOffline = true;
-          } else {
-            // Check timestamp - only mark offline if very old (10+ minutes)
-            let timestampField = loc.timestamp || loc.last_updated || loc.updated_at;
-            
-            // If no timestamp but has recent_points, use the last point's timestamp
-            if (!timestampField && loc.recent_points && loc.recent_points.length > 0) {
-              const lastPoint = loc.recent_points[loc.recent_points.length - 1];
-              timestampField = lastPoint.timestamp;
-            }
-            
-            if (timestampField) {
-              try {
-                const timestamp = new Date(timestampField);
-                const now = new Date();
-                const timeDiff = now.getTime() - timestamp.getTime();
-                isOffline = timeDiff > 10 * 60 * 1000; // 10 minutes threshold
-              } catch (error) {
-                // If we can't parse timestamp, don't mark as offline
-                isOffline = false;
-              }
-            }
-          }
+          // Use app-reported offline status
+          const isOffline = loc.is_app_offline || false;
 
           return (
             <React.Fragment key={`${loc.session_id}-${index}`}>
@@ -601,7 +600,7 @@ function LiveMarkers({ locations, branchFilter, userRole, onPing, pinging, showT
               {/* Current position marker */}
               <Marker
                 position={position}
-                icon={createDriverIcon(loc.driver, loc.vehicle, hasEmergency, hasAssistance, isOffline)}
+                icon={createDriverIcon(loc.driver, loc.vehicle, hasEmergency, hasAssistance, isOffline, loc.heading)}
               >
                 <Popup>
                   <div className="marker-popup popup-compact">
@@ -695,6 +694,8 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
   const [showTrails, setShowTrails] = useState(false);
   const [showIncidents, setShowIncidents] = useState(true);
   const [incidentRoutes, setIncidentRoutes] = useState({});
+  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connecting', 'online', 'offline'
+  const [retryCount, setRetryCount] = useState(0);
   const fetchRef = useRef(null);
   const prevDriversRef = useRef(new Set()); // Track previously active drivers
 
@@ -777,10 +778,29 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
         ronda.incidents.list(),
       ]);
 
-      // Count active drivers with GPS
+      // Count active drivers with GPS and analyze movement
       const activeDriversWithGPS = liveData.filter(loc => loc.latitude != null && loc.longitude != null);
       const hasActiveDrivers = activeDriversWithGPS.length > 0;
 
+      // Determine if drivers are moving (check recent points)
+      const movingDrivers = activeDriversWithGPS.filter(loc => {
+        if (!loc.recent_points || loc.recent_points.length < 2) return false;
+        
+        // Check if there's significant movement in recent points
+        const points = loc.recent_points.slice(-3); // Last 3 points
+        if (points.length < 2) return false;
+        
+        const oldest = points[0];
+        const newest = points[points.length - 1];
+        const timeDiff = new Date(newest.timestamp).getTime() - new Date(oldest.timestamp).getTime();
+        
+        // If time difference is more than 2 minutes, consider as moving
+        return timeDiff > 120000;
+      });
+
+      const driverCount = activeDriversWithGPS.length;
+      const movingCount = movingDrivers.length;
+      
       setLocations(liveData);
       
       // Check for new drivers and show toast notifications
@@ -819,12 +839,39 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
       }
       setLastUpdate(new Date());
       setError(null);
+      setConnectionStatus('online');
+      setRetryCount(0); // Reset retry count on success
 
-      return hasActiveDrivers ? REFRESH_MS : SMART_POLL_INTERVAL;
+      // Smart adaptive polling based on driver activity and count
+      if (!hasActiveDrivers) {
+        return NO_DRIVERS_REFRESH_MS; // 15s when no drivers
+      }
+      
+      // Scale polling based on driver count and movement
+      if (driverCount > 10) {
+        // Many drivers - reduce frequency to prevent overload
+        return movingCount > 0 ? ACTIVE_REFRESH_MS * 1.5 : IDLE_REFRESH_MS * 1.5;
+      } else if (driverCount > 5) {
+        // Moderate number of drivers
+        return movingCount > 0 ? ACTIVE_REFRESH_MS * 1.2 : IDLE_REFRESH_MS * 1.2;
+      } else {
+        // Few drivers - can use standard intervals
+        return movingCount > 0 ? ACTIVE_REFRESH_MS : IDLE_REFRESH_MS;
+      }
     } catch (e) {
       const errorMessage = e.message || 'Failed to load live GPS data';
       setError(errorMessage);
-      return SMART_POLL_INTERVAL * 2;
+      setConnectionStatus('offline');
+      setRetryCount(prev => prev + 1);
+      
+      // Exponential backoff with max limit
+      const retryDelay = Math.min(
+        ERROR_RETRY_INTERVAL * Math.pow(2, retryCount - 1),
+        MAX_RETRY_INTERVAL
+      );
+      
+      console.error(`LiveMap fetch error (attempt ${retryCount}):`, e);
+      return retryDelay;
     } finally {
       setLoading(false);
     }
@@ -836,18 +883,26 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
     // Initial fetch
     fetchLive();
     
-    // Set up polling interval
-    fetchRef.current = setInterval(() => {
-      if (isMounted) {
-        fetchLive();
+    // Set up adaptive polling
+    const scheduleNextFetch = (delay) => {
+      if (fetchRef.current) {
+        clearTimeout(fetchRef.current);
       }
-    }, REFRESH_MS);
+      fetchRef.current = setTimeout(() => {
+        if (isMounted) {
+          fetchLive().then(scheduleNextFetch);
+        }
+      }, delay);
+    };
+    
+    // Start the adaptive polling cycle
+    scheduleNextFetch(ACTIVE_REFRESH_MS);
     
     // Cleanup
     return () => {
       isMounted = false;
       if (fetchRef.current) {
-        clearInterval(fetchRef.current);
+        clearTimeout(fetchRef.current);
         fetchRef.current = null;
       }
     };
@@ -918,8 +973,14 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
             {showIncidents ? `Alerts: ON (${incidents.length})` : `Alerts: OFF (${incidents.length})`}
           </button>
           
+          <span className={`live-map-status ${connectionStatus}`}>
+            <span className={`status-indicator ${connectionStatus}`}></span>
+            {connectionStatus === 'connecting' ? 'Connecting...' : 
+             connectionStatus === 'online' ? 'Live' : 'Offline'}
+          </span>
           <span className="live-map-updated">
-            Real-time updates every 5s. Last: {lastUpdate ? lastUpdate.toLocaleTimeString() : '—'}
+            Updates every 5s. Last: {lastUpdate ? lastUpdate.toLocaleTimeString() : '—'}
+            {retryCount > 0 && ` (Retry ${retryCount})`}
           </span>
         </div>
         <MapContainer
@@ -1023,22 +1084,10 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
             const hasEmergency = driverEmergencies.length > 0;
             const hasAssistance = driverAssistance.length > 0;
 
-            // Check if driver is offline (same logic as markers)
-            const timestampField = loc.timestamp || loc.last_updated || loc.updated_at;
-            let isOfflineDriver = false;
-            
-            if (timestampField) {
-              try {
-                const timestamp = new Date(timestampField);
-                const now = new Date();
-                const timeDiff = now.getTime() - timestamp.getTime();
-                isOfflineDriver = timeDiff > 5 * 60 * 1000; // 5 minutes
-              } catch (error) {
-                isOfflineDriver = true; // Assume offline if timestamp is invalid
-              }
-            } else {
-              isOfflineDriver = true; // Assume offline if no timestamp
-            }
+            // Use app-reported offline status
+            const isOffline = loc.is_app_offline || false;
+            const isStale = loc.is_stale || false;
+            const lastSeenMinutes = loc.last_seen_minutes;
 
             return (
               <div key={loc.session_id} className={`driver-card ${hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`}>
@@ -1055,13 +1104,19 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
                     <span>Requesting assistance</span>
                   </div>
                 )}
-                {isOfflineDriver && !hasEmergency && !hasAssistance && (
+                {isOffline && !hasEmergency && !hasAssistance && (
                   <div className="driver-card-alert offline">
                     <strong>📵 OFFLINE</strong>
-                    <span>No recent GPS data</span>
+                    <span>Mobile app offline</span>
                   </div>
                 )}
-
+                {isStale && !isOffline && !hasEmergency && !hasAssistance && (
+                  <div className="driver-card-alert stale">
+                    <strong>⏱️ STALE DATA</strong>
+                    <span>Last seen {lastSeenMinutes ? `${Math.round(lastSeenMinutes)} min ago` : 'unknown time ago'}</span>
+                  </div>
+                )}
+                
                 <div className="driver-header">
                   <div
                     className={`driver-color ${hasEmergency ? 'emergency' : hasAssistance ? 'assistance' : ''}`}

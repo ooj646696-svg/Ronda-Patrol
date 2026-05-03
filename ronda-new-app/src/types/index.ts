@@ -74,6 +74,7 @@ export interface GPSLog {
   accuracy?: number;
   speed?: number;
   altitude?: number;
+  heading?: number;
   is_valid?: boolean;
   rejection_reason?: string;
   accuracy_score?: number;
@@ -87,6 +88,7 @@ export interface GPSCreateRequest {
   accuracy?: number;
   speed?: number;
   altitude?: number;
+  heading?: number;
   snapped_to_road?: boolean;
 }
 

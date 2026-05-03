@@ -5,10 +5,18 @@ import axios from 'axios';
 
 const BASE_URL = process.env.REACT_APP_API_URL || 'http://192.168.101.82:8000/api';
 
+// Extract base URL for media files
+const getMediaUrl = (mediaPath) => {
+  const baseUrl = BASE_URL.replace('/api', '');
+  return `${baseUrl}/media/${mediaPath}`;
+};
+
 export const api = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
 });
+
+export { getMediaUrl };
 
 let isRefreshing = false;
 let refreshPromise = null;

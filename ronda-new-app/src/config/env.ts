@@ -32,7 +32,7 @@ export const getApiBaseUrl = (): string => {
   // Fallback based on environment
   if (Constants.appOwnership === 'expo') {
     // Expo Go development
-    return 'http://192.168.1.18:8000/api';
+    return 'http://192.168.18.12:8000/api';
   }
   
   // Development build or production

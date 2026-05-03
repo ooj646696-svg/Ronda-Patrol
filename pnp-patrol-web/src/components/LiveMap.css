@@ -22,9 +22,58 @@
    font-size: 0.9rem;
  }
 
+ .live-map-status {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-left: auto;
+  margin-right: 1rem;
+}
+
+.live-map-status.connecting {
+  color: #ff9800;
+}
+
+.live-map-status.online {
+  color: #4caf50;
+}
+
+.live-map-status.offline {
+  color: #f44336;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-indicator.connecting {
+  background: #ff9800;
+  animation: pulse 1.5s infinite;
+}
+
+.status-indicator.online {
+  background: #4caf50;
+  animation: pulse 2s infinite;
+}
+
+.status-indicator.offline {
+  background: #f44336;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
  .live-map-updated {
-   font-size: 0.8rem;
-   color: #888;
+   font-size: 0.75rem;
+   color: #666;
  }
 
  .live-map {
@@ -123,51 +172,6 @@
   background: #f8d7da;
   color: #721c24;
   font-weight: bold;
-}
-
-.ping-badge.pending {
-  background: #e2e3e5;
-  color: #383d41;
-}
-
-/* Ping Button in Popup */
-.ping-action {
-  margin-top: 0.5rem;
-}
-
-.ping-action hr {
-  margin: 0.5rem 0;
-  border: none;
-  border-top: 1px solid #ddd;
-}
-
-.ping-btn {
-  width: 100%;
-  padding: 0.5rem 1rem;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.ping-btn:hover:not(:disabled) {
-  background: #0056b3;
-}
-
-.ping-btn:disabled,
-.ping-btn.disabled {
-  background: #ffc107;
-  color: #212529;
-  cursor: not-allowed;
-}
-
-/* Custom Driver Marker Styles */
-.custom-driver-marker {
-  display: block;
 }
 
 .custom-driver-marker.emergency {
@@ -431,16 +435,6 @@
   font-size: 14px;
 }
 
-/* Video Call Button in Popup */
-.video-call-action {
-  margin-top: 0.5rem;
-}
-
-.video-call-action hr {
-  margin: 0.5rem 0;
-  border: none;
-  border-top: 1px solid #ddd;
-}
 
 /* Animation for marker pulse effect */
 @keyframes marker-pulse {
@@ -727,6 +721,11 @@
 
 .driver-card-alert.offline {
   background: linear-gradient(135deg, #808080, #606060);
+  color: white;
+}
+
+.driver-card-alert.stale {
+  background: linear-gradient(135deg, #ff9800, #f57c00);
   color: white;
 }
 

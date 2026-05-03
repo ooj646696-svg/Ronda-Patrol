@@ -37,4 +37,14 @@ export const sessionsApi = {
     const response = await apiClient.get('/sessions/live/');
     return response.data;
   },
+
+  /**
+   * Update offline status for a session
+   */
+  async updateOfflineStatus(sessionId: number, isOffline: boolean): Promise<{ is_app_offline: boolean; message: string }> {
+    const response = await apiClient.patch(`/sessions/${sessionId}/offline-status/`, {
+      is_offline: isOffline,
+    });
+    return response.data;
+  },
 };

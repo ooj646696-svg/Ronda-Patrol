@@ -70,8 +70,36 @@ const WebViewMap = forwardRef<WebView, WebViewMapProps>(({ currentLocation, onMa
         let currentMarker = null;
         let accuracyCircle = null;
         
+        // Function to create directional marker
+        function createDirectionalMarker(latitude, longitude, heading) {
+          const iconHtml = heading !== null && heading !== undefined ? 
+            \`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48">
+              <circle cx="20" cy="24" r="18" fill="#2ECC40" stroke="#27AE60" stroke-width="3"/>
+              <line x1="20" y1="24" x2="\${20 + Math.cos((heading - 90) * Math.PI / 180) * 14}" 
+                    y2="\${24 + Math.sin((heading - 90) * Math.PI / 180) * 14}" 
+                    stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+              <polygon points="\${20 + Math.cos((heading - 90) * Math.PI / 180) * 14},\${24 + Math.sin((heading - 90) * Math.PI / 180) * 14} 
+                           \${20 + Math.cos((heading - 90) * Math.PI / 180) * 14 - Math.cos((heading - 90 + 45) * Math.PI / 180) * 4},\${24 + Math.sin((heading - 90) * Math.PI / 180) * 14 - Math.sin((heading - 90 + 45) * Math.PI / 180) * 4}
+                           \${20 + Math.cos((heading - 90) * Math.PI / 180) * 14 - Math.cos((heading - 90 - 45) * Math.PI / 180) * 4},\${24 + Math.sin((heading - 90) * Math.PI / 180) * 14 - Math.sin((heading - 90 - 45) * Math.PI / 180) * 4}" 
+                       fill="white"/>
+              <text x="20" y="28" text-anchor="middle" fill="white" font-size="12" font-weight="bold" font-family="Arial, sans-serif">YOU</text>
+            </svg>\` :
+            \`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48">
+              <circle cx="20" cy="24" r="18" fill="#2ECC40" stroke="#27AE60" stroke-width="3"/>
+              <text x="20" y="28" text-anchor="middle" fill="white" font-size="12" font-weight="bold" font-family="Arial, sans-serif">YOU</text>
+            </svg>\`;
+          
+          return L.divIcon({
+            html: iconHtml,
+            className: 'custom-directional-marker',
+            iconSize: [40, 48],
+            iconAnchor: [20, 48],
+            popupAnchor: [0, -48]
+          });
+        }
+        
         // Function to update location
-        function updateLocation(latitude, longitude, accuracy) {
+        function updateLocation(latitude, longitude, accuracy, heading) {
           // Remove existing marker and circle
           if (currentMarker) {
             map.removeLayer(currentMarker);
@@ -80,10 +108,12 @@ const WebViewMap = forwardRef<WebView, WebViewMapProps>(({ currentLocation, onMa
             map.removeLayer(accuracyCircle);
           }
           
-          // Add new marker
-          currentMarker = L.marker([latitude, longitude])
+          // Add new marker with direction
+          currentMarker = L.marker([latitude, longitude], {
+            icon: createDirectionalMarker(latitude, longitude, heading)
+          })
             .addTo(map)
-            .bindPopup('Your Location<br>Accuracy: ' + accuracy + 'm');
+            .bindPopup('Your Location<br>Accuracy: ' + accuracy + 'm<br>Heading: ' + (heading !== null ? heading + '°' : 'N/A'));
           
           // Add accuracy circle
           if (accuracy) {
@@ -110,7 +140,7 @@ const WebViewMap = forwardRef<WebView, WebViewMapProps>(({ currentLocation, onMa
         document.addEventListener('message', function(event) {
           const data = JSON.parse(event.data);
           if (data.type === 'locationUpdate' && data.location) {
-            updateLocation(data.location.latitude, data.location.longitude, data.location.accuracy);
+            updateLocation(data.location.latitude, data.location.longitude, data.location.accuracy, data.location.heading);
           }
           if (data.type === 'centerLocation' && data.location) {
             console.log('Centering map to:', data.location);

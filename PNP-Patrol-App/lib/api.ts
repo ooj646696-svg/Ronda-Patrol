@@ -180,6 +180,8 @@ export const ronda = {
         )
         .then((r) => r.data),
     stop: (id: number) => api.post(`/sessions/${id}/stop/`).then((r) => r.data),
+    updateOfflineStatus: (id: number, isOffline: boolean) =>
+      api.patch(`/sessions/${id}/offline-status/`, { is_offline: isOffline }).then((r) => r.data),
   },
   gpsLogs: {
     create: (sessionId: number, latitude: number, longitude: number, timestamp: string, accuracy?: number | null, speed?: number | null, altitude?: number | null) => {
