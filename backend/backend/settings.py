@@ -36,7 +36,7 @@ ALLOWED_HOSTS = [
     h.strip()
     for h in os.environ.get(
         'ALLOWED_HOSTS',
-        'localhost, 127.0.0.1, 192.168.18.12, 192.168.8.156 ,192.168.101.82, ronda-patrol-monitoring-web-app.onrender.com'
+        'localhost, 127.0.0.1, 192.168.8.147, 192.168.8.156 ,192.168.101.82, ronda-patrol-monitoring-web-app.onrender.com'
     ).split(',')
     if h.strip()
 ]
@@ -110,10 +110,6 @@ TEMPLATES = [
         },
     },
 ]
-
-ASGI_APPLICATION = 'patrol_api.asgi.application'
-
-
 # ─── Channel Layers (Redis) ───────────────────────────────────────────────────
 
 _redis_url = os.environ.get('REDIS_URL')

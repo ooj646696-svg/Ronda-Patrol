@@ -246,8 +246,7 @@ export default function HomeScreen() {
     if (hasActiveSession && session && currentLocation) {
       const sendGpsData = async () => {
         try {
-          await gpsApi.createWithSnapping({
-            session: session.id,
+          const payload = {
             latitude: currentLocation.latitude,
             longitude: currentLocation.longitude,
             timestamp: new Date().toISOString(),
@@ -255,6 +254,16 @@ export default function HomeScreen() {
             speed: currentLocation.speed ? Math.round(currentLocation.speed * 100) / 100 : undefined,
             altitude: currentLocation.altitude ? Math.round(currentLocation.altitude * 10) / 10 : undefined,
             heading: currentLocation.heading ? Math.round(currentLocation.heading * 100) / 100 : undefined,
+          };
+
+          if (mobileWebSocketService.isConnected()) {
+            mobileWebSocketService.sendGPSData(payload);
+            return;
+          }
+
+          await gpsApi.createWithSnapping({
+            session: session.id,
+            ...payload,
           });
         } catch (error: any) {
           // Don't log 400 errors (session ended) as they're expected

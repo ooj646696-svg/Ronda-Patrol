@@ -51,6 +51,10 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     Calculate the great circle distance between two points on earth.
     Returns distance in meters.
     """
+    lat1 = float(lat1)
+    lon1 = float(lon1)
+    lat2 = float(lat2)
+    lon2 = float(lon2)
     # Convert decimal degrees to radians
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
     
@@ -74,6 +78,7 @@ class LiveGPSConsumer(AsyncWebsocketConsumer):
         """Accept WebSocket connection and authenticate user"""
         try:
             query_params = _get_query_params(self.scope)
+            print("[LiveGPS] Step 1: query params parsed")
 
             # Get token from query string or headers
             token = query_params.get('token', [None])[0]
@@ -85,56 +90,84 @@ class LiveGPSConsumer(AsyncWebsocketConsumer):
                     token = auth_header[6:]
             
             if not token:
+                print("[LiveGPS] REJECT: no token provided")
                 await self.close(code=4001)
                 return
             
+            print(f"[LiveGPS] Step 2: token found (len={len(token)})")
+
             # Authenticate user
             try:
                 user = await _get_user_from_token(token)
-            except Exception:
+            except Exception as e:
+                print(f"[LiveGPS] REJECT: auth failed - {e}")
                 await self.close(code=4002)
                 return
-            
+
+            print(f"[LiveGPS] Step 3: user authenticated - {user.username} role={user.role}")
+            self.scope['user'] = user
+
+            # Cache user fields as primitives to avoid async ORM access
+            self._user_role = user.role
+            self._user_branch_id = user.branch_id  # FK _id is a plain int, no DB query
+            self._user_id = user.id
+
             # Add user to appropriate group based on role
-            if user.role == 'SUPER_ADMIN':
+            if self._user_role == 'SUPER_ADMIN':
                 group_name = 'live_gps_all'
-            elif user.role == 'BRANCH_ADMIN':
-                group_name = f'live_gps_branch_{user.branch_id}'
-            elif user.role == 'DRIVER':
-                group_name = f'live_gps_driver_{user.id}'
+            elif self._user_role == 'BRANCH_ADMIN':
+                group_name = f'live_gps_branch_{self._user_branch_id}'
+            elif self._user_role == 'DRIVER':
+                group_name = f'live_gps_driver_{self._user_id}'
             else:
+                print(f"[LiveGPS] REJECT: unknown role={self._user_role}")
                 await self.close(code=4003)
                 return
             
+            print(f"[LiveGPS] Step 4: group={group_name}")
+
             # Join group
             await self.channel_layer.group_add(group_name, self.channel_name)
             self.group_name = group_name
             
             await self.accept()
-            
-            # Send initial data
-            await self.send_initial_data()
+            print("[LiveGPS] Step 5: connection accepted")
             
         except Exception as e:
-            print(f"Live GPS WebSocket connection error: {e}")
-            await self.close(code=4000)
+            print(f"[LiveGPS] FATAL connect error: {type(e).__name__}: {e}")
+            import traceback; traceback.print_exc()
+            try:
+                await self.close(code=4000)
+            except Exception:
+                pass
+            return
+
+        # Send initial data AFTER accept — failure must NOT close the connection
+        try:
+            await self.send_initial_data()
+            print("[LiveGPS] Step 6: initial data sent")
+        except Exception as e:
+            print(f"[LiveGPS] initial data send failed (non-fatal): {type(e).__name__}: {e}")
+            import traceback; traceback.print_exc()
     
     async def disconnect(self, close_code):
         """Handle disconnection"""
+        print(f"[LiveGPS] disconnect code={close_code} group={getattr(self, 'group_name', 'N/A')}")
         if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
     
     async def send_initial_data(self):
         """Send initial live locations data"""
-        try:
-            user = self.scope['user']
-            live_data = await self.get_live_locations(user)
-            await self.send(text_data=json.dumps({
-                'type': 'initial_data',
-                'data': live_data
-            }))
-        except Exception as e:
-            print(f"Error sending initial data: {e}")
+        user = self.scope['user']
+        print(f"[LiveGPS] send_initial_data for {user.username}")
+        live_data = await self.get_live_locations(user)
+        print(f"[LiveGPS] get_live_locations returned {len(live_data)} sessions")
+        payload = json.dumps({
+            'type': 'initial_data',
+            'data': live_data
+        })
+        await self.send(text_data=payload)
+        print(f"[LiveGPS] initial_data sent ({len(payload)} bytes)")
     
     async def gps_update(self, event):
         """Handle GPS update broadcast"""
@@ -149,6 +182,17 @@ class LiveGPSConsumer(AsyncWebsocketConsumer):
             'type': 'status_change',
             'data': event['data']
         }))
+
+    async def receive(self, text_data):
+        """Handle messages from clients (heartbeat, etc.)."""
+        try:
+            data = json.loads(text_data)
+        except json.JSONDecodeError:
+            return
+
+        if data.get('type') == 'ping':
+            await self.send(text_data=json.dumps({'type': 'pong'}))
+            return
     
     @database_sync_to_async
     def get_live_locations(self, user):
@@ -230,12 +274,16 @@ class GPSUpdateConsumer(AsyncWebsocketConsumer):
             # Authenticate and validate session
             try:
                 user = await _get_user_from_token(token)
-                
-                session = await database_sync_to_async(DriverSession.objects.get)(
+
+                session = await database_sync_to_async(lambda: DriverSession.objects.select_related('vehicle', 'branch', 'driver').get(
                     id=session_id, driver=user, is_active=True
-                )
+                ))()
                 self.session = session
                 self.user = user
+
+                self.vehicle_plate = session.vehicle.plate_number if session.vehicle else None
+                self.branch_code = session.branch.code if session.branch else None
+                self.branch_id = session.branch_id
                 
             except (Token.DoesNotExist, DriverSession.DoesNotExist):
                 await self.close(code=4003)
@@ -254,6 +302,7 @@ class GPSUpdateConsumer(AsyncWebsocketConsumer):
     
     async def disconnect(self, close_code):
         """Handle disconnection"""
+        print(f"[GPSUpdate] disconnect code={close_code} session={getattr(self, 'session', 'N/A')}")
         if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
     
@@ -261,6 +310,17 @@ class GPSUpdateConsumer(AsyncWebsocketConsumer):
         """Receive GPS data from mobile app"""
         try:
             data = json.loads(text_data)
+
+            if data.get('type') == 'ping':
+                await self.send(text_data=json.dumps({'type': 'pong'}))
+                return
+
+            if data.get('type') not in (None, 'gps_update'):
+                await self.send(text_data=json.dumps({
+                    'type': 'error',
+                    'message': 'Unsupported message type'
+                }))
+                return
             
             # Validate GPS data
             required_fields = ['latitude', 'longitude', 'timestamp']
@@ -330,11 +390,21 @@ class GPSUpdateConsumer(AsyncWebsocketConsumer):
                     print(f"Skipping GPS save - distance: {distance:.1f}m, time: {time_diff:.1f}s")
             
             if should_save:
+                current_time = timezone.now()
+                if data.get('timestamp'):
+                    try:
+                        parsed_timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00'))
+                        timestamp = timezone.make_aware(parsed_timestamp) if timezone.is_naive(parsed_timestamp) else parsed_timestamp
+                    except Exception:
+                        timestamp = current_time
+                else:
+                    timestamp = current_time
+
                 GPSLog.objects.create(
                     session=self.session,
                     latitude=data['latitude'],
                     longitude=data['longitude'],
-                    timestamp=data['timestamp'],
+                    timestamp=timestamp,
                     accuracy=data.get('accuracy'),
                     speed=data.get('speed'),
                     altitude=data.get('altitude'),
@@ -347,34 +417,36 @@ class GPSUpdateConsumer(AsyncWebsocketConsumer):
     
     async def broadcast_gps_update(self, gps_data):
         """Broadcast GPS update to relevant groups"""
-        # Broadcast to all groups based on user role
-        if self.user.role == 'SUPER_ADMIN':
+        payload = {
+            'session_id': self.session.id,
+            'driver': self.user.username,
+            'driver_id': self.user.id,
+            'vehicle': getattr(self, 'vehicle_plate', None),
+            'branch': getattr(self, 'branch_code', None),
+            **gps_data,
+        }
+
+        await self.channel_layer.group_send(
+            'live_gps_all',
+            {
+                'type': 'gps_update',
+                'data': payload,
+            }
+        )
+
+        if getattr(self, 'branch_id', None):
             await self.channel_layer.group_send(
-                'live_gps_all',
+                f'live_gps_branch_{self.branch_id}',
                 {
                     'type': 'gps_update',
-                    'data': {
-                        'session_id': self.session.id,
-                        'driver': self.user.username,
-                        'driver_id': self.user.id,
-                        'vehicle': self.session.vehicle.plate_number if self.session.vehicle else None,
-                        'branch': self.session.branch.code if self.session.branch else None,
-                        **gps_data
-                    }
+                    'data': payload,
                 }
             )
-        elif self.user.role == 'DRIVER' and self.session.branch_id:
-            await self.channel_layer.group_send(
-                f'live_gps_branch_{self.session.branch_id}',
-                {
-                    'type': 'gps_update',
-                    'data': {
-                        'session_id': self.session.id,
-                        'driver': self.user.username,
-                        'driver_id': self.user.id,
-                        'vehicle': self.session.vehicle.plate_number if self.session.vehicle else None,
-                        'branch': self.session.branch.code if self.session.branch else None,
-                        **gps_data
-                    }
-                }
-            )
+
+        await self.channel_layer.group_send(
+            f'live_gps_driver_{self.user.id}',
+            {
+                'type': 'gps_update',
+                'data': payload,
+            }
+        )

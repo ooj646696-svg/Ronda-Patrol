@@ -3,9 +3,4 @@ ASGI configuration for Django Channels.
 Handles HTTP connections only (WebSocket routes removed).
 """
 
-import os
-from django.core.asgi import get_asgi_application
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
-
-application = get_asgi_application()
+from backend.asgi import application

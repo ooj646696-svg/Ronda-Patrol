@@ -696,7 +696,6 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
   const [incidentRoutes, setIncidentRoutes] = useState({});
   const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connecting', 'online', 'offline'
   const [retryCount, setRetryCount] = useState(0);
-  const fetchRef = useRef(null);
   const prevDriversRef = useRef(new Set()); // Track previously active drivers
 
   const handlePing = async (driverId, driverName) => {
@@ -878,33 +877,93 @@ export function LiveMap({ branchFilter, onBranchFilterChange, branches }) {
   };
 
   useEffect(() => {
-    let isMounted = true;
-    
-    // Initial fetch
+    // Do one HTTP bootstrap fetch (sessions/incidents + initial locations fallback)
     fetchLive();
-    
-    // Set up adaptive polling
-    const scheduleNextFetch = (delay) => {
-      if (fetchRef.current) {
-        clearTimeout(fetchRef.current);
+
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setConnectionStatus('offline');
+      return;
+    }
+
+    const handleInitial = (data) => {
+      if (Array.isArray(data)) {
+        setLocations(data);
+        setLastUpdate(new Date());
+        setConnectionStatus('online');
+        setError(null);
       }
-      fetchRef.current = setTimeout(() => {
-        if (isMounted) {
-          fetchLive().then(scheduleNextFetch);
-        }
-      }, delay);
     };
-    
-    // Start the adaptive polling cycle
-    scheduleNextFetch(ACTIVE_REFRESH_MS);
-    
-    // Cleanup
-    return () => {
-      isMounted = false;
-      if (fetchRef.current) {
-        clearTimeout(fetchRef.current);
-        fetchRef.current = null;
+
+    const handleUpdate = (update) => {
+      if (!update || !update.session_id) return;
+      setLocations((prev) => {
+        const next = Array.isArray(prev) ? [...prev] : [];
+        const idx = next.findIndex((l) => l.session_id === update.session_id);
+
+        const point = {
+          latitude: update.latitude,
+          longitude: update.longitude,
+          timestamp: update.timestamp,
+          heading: update.heading,
+        };
+
+        if (idx >= 0) {
+          const existing = next[idx] || {};
+          const existingPoints = Array.isArray(existing.recent_points) ? existing.recent_points : [];
+          const mergedPoints = [...existingPoints, point].slice(-50);
+          next[idx] = {
+            ...existing,
+            ...update,
+            recent_points: mergedPoints,
+          };
+        } else {
+          next.push({
+            ...update,
+            recent_points: [point],
+          });
+        }
+
+        return next;
+      });
+
+      setLastUpdate(new Date());
+    };
+
+    const handleStatusChange = (payload) => {
+      if (!payload || !payload.session_id) return;
+      setLocations((prev) => {
+        const next = Array.isArray(prev) ? [...prev] : [];
+        const idx = next.findIndex((l) => l.session_id === payload.session_id);
+        if (idx < 0) return prev;
+        next[idx] = { ...next[idx], ...payload };
+        return next;
+      });
+    };
+
+    websocketService.on('initial_data', handleInitial);
+    websocketService.on('gps_update', handleUpdate);
+    websocketService.on('status_change', handleStatusChange);
+
+    websocketService.connect(
+      token,
+      () => {
+        setConnectionStatus('online');
+        setError(null);
+      },
+      () => {
+        setConnectionStatus('offline');
+      },
+      () => {
+        setConnectionStatus('offline');
       }
+    );
+
+    return () => {
+      websocketService.off('initial_data', handleInitial);
+      websocketService.off('gps_update', handleUpdate);
+      websocketService.off('status_change', handleStatusChange);
+      websocketService.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

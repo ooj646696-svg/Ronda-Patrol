@@ -15,6 +15,7 @@ class WebSocketService {
     this.url = null;
     this.heartbeatInterval = null;
     this.heartbeatTimeout = null;
+    this.manuallyClosed = false;
   }
 
   /**
@@ -27,11 +28,26 @@ class WebSocketService {
 
     this.token = token;
     this.isConnecting = true;
+    this.manuallyClosed = false;
 
     // Build WebSocket URL
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    this.url = `${protocol}//${host}/ws/live-gps/?token=${token}`;
+    const envApiUrl = process.env.REACT_APP_API_URL;
+    if (envApiUrl) {
+      try {
+        const u = new URL(envApiUrl);
+        const protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = u.host;
+        this.url = `${protocol}//${host}/ws/live-gps/?token=${token}`;
+      } catch (e) {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host;
+        this.url = `${protocol}//${host}/ws/live-gps/?token=${token}`;
+      }
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      this.url = `${protocol}//${host}/ws/live-gps/?token=${token}`;
+    }
 
     console.log('Connecting to WebSocket:', this.url);
 
@@ -61,7 +77,9 @@ class WebSocketService {
         this.ws = null;
         this.stopHeartbeat();
         if (onClose) onClose(event);
-        this.handleReconnect();
+        if (!this.manuallyClosed) {
+          this.handleReconnect();
+        }
       };
 
       this.ws.onerror = (error) => {
@@ -84,6 +102,12 @@ class WebSocketService {
     const { type, data: messageData } = data;
 
     switch (type) {
+      case 'pong':
+        if (this.heartbeatTimeout) {
+          clearTimeout(this.heartbeatTimeout);
+          this.heartbeatTimeout = null;
+        }
+        break;
       case 'initial_data':
         this.emit('initial_data', messageData);
         break;
@@ -173,6 +197,10 @@ class WebSocketService {
     // Send ping every 20 seconds
     this.heartbeatInterval = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        if (this.heartbeatTimeout) {
+          clearTimeout(this.heartbeatTimeout);
+          this.heartbeatTimeout = null;
+        }
         this.ws.send(JSON.stringify({ type: 'ping' }));
         
         // Set timeout to detect if pong is received
@@ -203,11 +231,12 @@ class WebSocketService {
    */
   disconnect() {
     this.stopHeartbeat();
+    this.manuallyClosed = true;
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
-    this.reconnectAttempts = this.maxReconnectAttempts; // Prevent reconnection
+    this.isConnecting = false;
   }
 
   /**
